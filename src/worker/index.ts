@@ -339,15 +339,16 @@ app.post("/api/issues/:id/take", async (c) => {
       )
       .run();
 
-    const updatedIssue = await c.env.DB.prepare(
-      `
-      SELECT *
-      FROM issues
-      WHERE id = ?
-      `
-    )
-      .bind(id)
-      .first();
+    const updatedIssue =
+      await c.env.DB.prepare(
+        `
+        SELECT *
+        FROM issues
+        WHERE id = ?
+        `
+      )
+        .bind(id)
+        .first();
 
     return c.json({
       success: true,
@@ -392,7 +393,7 @@ app.post("/api/issues/:id/status", async (c) => {
       formData.get("worker_name") || ""
     ).trim();
 
-    const newStatus = String(
+    const status = String(
       formData.get("status") || ""
     ).trim();
 
@@ -412,7 +413,7 @@ app.post("/api/issues/:id/status", async (c) => {
 
     if (
       !["closed", "material", "manager"].includes(
-        newStatus
+        status
       )
     ) {
       return c.json(
@@ -445,15 +446,15 @@ app.post("/api/issues/:id/status", async (c) => {
     ) {
       let folder = "issues/actions";
 
-      if (newStatus === "closed") {
+      if (status === "closed") {
         folder = "issues/resolved";
       }
 
-      if (newStatus === "material") {
+      if (status === "material") {
         folder = "issues/material";
       }
 
-      if (newStatus === "manager") {
+      if (status === "manager") {
         folder = "issues/manager";
       }
 
@@ -478,28 +479,29 @@ app.post("/api/issues/:id/status", async (c) => {
     }
 
     const closedSql =
-      newStatus === "closed"
+      status === "closed"
         ? "CURRENT_TIMESTAMP"
         : "NULL";
 
-    const updateResult = await c.env.DB.prepare(
-      `
-      UPDATE issues
-      SET
-        status = ?,
-        last_actor_name = ?,
-        updated_at = CURRENT_TIMESTAMP,
-        closed_at = ${closedSql}
-      WHERE id = ?
-        AND status = 'progress'
-      `
-    )
-      .bind(
-        newStatus,
-        workerName,
-        id
+    const updateResult =
+      await c.env.DB.prepare(
+        `
+        UPDATE issues
+        SET
+          status = ?,
+          last_actor_name = ?,
+          updated_at = CURRENT_TIMESTAMP,
+          closed_at = ${closedSql}
+        WHERE id = ?
+          AND status = 'progress'
+        `
       )
-      .run();
+        .bind(
+          status,
+          workerName,
+          id
+        )
+        .run();
 
     if (!updateResult.meta.changes) {
       return c.json(
@@ -514,18 +516,16 @@ app.post("/api/issues/:id/status", async (c) => {
 
     let eventType = "updated";
 
-    if (newStatus === "closed") {
+    if (status === "closed") {
       eventType = "resolved";
     }
 
-    if (newStatus === "material") {
-      eventType =
-        "material_requested";
+    if (status === "material") {
+      eventType = "material_requested";
     }
 
-    if (newStatus === "manager") {
-      eventType =
-        "escalated_to_manager";
+    if (status === "manager") {
+      eventType = "escalated_to_manager";
     }
 
     await c.env.DB.prepare(
@@ -672,7 +672,9 @@ app.post(
           `
         )
           .bind(id)
-          .first<any>();
+          .first<{
+            status: string;
+          }>();
 
       if (!currentIssue) {
         return c.json(
@@ -687,9 +689,7 @@ app.post(
 
       if (
         !["manager", "material"].includes(
-          String(
-            currentIssue.status
-          )
+          currentIssue.status
         )
       ) {
         return c.json(
@@ -748,31 +748,7 @@ app.post(
         }
       }
 
-  
       let eventType = "";
-      let eventMessage = message;
-
-      if (action === "return") {
-       
-        eventType =
-          "returned_to_maintenance";
-      }
-
-      if (action === "close") {
-    
-        eventType =
-          "manager_resolved";
-      }
-
-      if (
-        action === "operations"
-      ) {
-        newStatus =
-          "operations";
-
-        eventType =
-          "escalated_to_operations";
-      }
 
       if (action === "return") {
         await c.env.DB.prepare(
@@ -785,6 +761,7 @@ app.post(
             updated_at = CURRENT_TIMESTAMP,
             closed_at = NULL
           WHERE id = ?
+            AND status IN ('manager', 'material')
           `
         )
           .bind(
@@ -792,6 +769,9 @@ app.post(
             id
           )
           .run();
+
+        eventType =
+          "returned_to_maintenance";
       }
 
       if (action === "close") {
@@ -804,6 +784,7 @@ app.post(
             updated_at = CURRENT_TIMESTAMP,
             closed_at = CURRENT_TIMESTAMP
           WHERE id = ?
+            AND status IN ('manager', 'material')
           `
         )
           .bind(
@@ -811,6 +792,9 @@ app.post(
             id
           )
           .run();
+
+        eventType =
+          "manager_resolved";
       }
 
       if (
@@ -825,6 +809,7 @@ app.post(
             updated_at = CURRENT_TIMESTAMP,
             closed_at = NULL
           WHERE id = ?
+            AND status IN ('manager', 'material')
           `
         )
           .bind(
@@ -832,6 +817,9 @@ app.post(
             id
           )
           .run();
+
+        eventType =
+          "escalated_to_operations";
       }
 
       await c.env.DB.prepare(
@@ -852,7 +840,7 @@ app.post(
           id,
           eventType,
           managerName,
-          eventMessage,
+          message,
           photoKey
         )
         .run();
@@ -899,6 +887,20 @@ app.get(
       const id = Number(
         c.req.param("id")
       );
+
+      if (
+        !Number.isInteger(id) ||
+        id <= 0
+      ) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Neplatné číslo závady.",
+          },
+          400
+        );
+      }
 
       const result =
         await c.env.DB.prepare(
