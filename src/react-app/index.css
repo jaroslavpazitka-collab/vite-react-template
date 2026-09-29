@@ -518,3 +518,75 @@ button:focus-visible {
   .employee-rating-row { grid-template-columns: minmax(0,1fr) auto; }
   .employee-rating-down { grid-column: 2; }
 }
+* =========================================
+   FINÁLNE DOPLNKY - HODNOTENIE / AUTOR
+   ========================================= */
+
+.rating-status-badge {
+  display: table;
+  margin: 0 0 12px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: .35px;
+}
+
+.rating-status-empty {
+  background: #f2f2f2;
+  color: #777;
+}
+
+.rating-status-up {
+  background: #eaf7ed;
+  color: #28743b;
+}
+
+.rating-status-down {
+  background: #fff0f0;
+  color: #a63b3b;
+}
+
+.rating-worker-missing {
+  margin-top: 11px;
+  padding: 11px 12px;
+  border: 1px solid #ead7b7;
+  border-radius: 12px;
+  background: #fff9ee;
+  color: #80633a;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.history-rating-state {
+  display: table;
+  margin-top: 6px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  font-size: 7px;
+  font-weight: 900;
+}
+
+.history-rating-empty {
+  background: #f2f2f2;
+  color: #888;
+}
+
+.history-rating-up {
+  background: #eaf7ed;
+  color: #28743b;
+}
+
+.history-rating-down {
+  background: #fff0f0;
+  color: #a63b3b;
+}
+
+.app-author {
+  margin-top: 12px;
+  text-align: right;
+  color: #aaa;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: .2px;
+}
