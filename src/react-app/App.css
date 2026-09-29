@@ -1372,3 +1372,210 @@ h1 {
   font-size: 12px;
   font-weight: 800;
 }
+/* =========================================
+   TATRALANDIA MODAL / POPUP
+   ========================================= */
+
+.custom-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+
+  background: rgba(10, 10, 10, 0.68);
+  backdrop-filter: blur(5px);
+  -webkit-backdrop-filter: blur(5px);
+
+  animation: modalFadeIn 0.18s ease;
+}
+
+.custom-modal {
+  width: 100%;
+  max-width: 355px;
+
+  padding: 28px 24px 22px;
+
+  border-radius: 24px;
+
+  background: #ffffff;
+
+  text-align: center;
+
+  box-shadow:
+    0 28px 80px rgba(0, 0, 0, 0.35),
+    0 4px 15px rgba(0, 0, 0, 0.12);
+
+  animation: modalSlideIn 0.22s ease;
+}
+
+.custom-modal-icon {
+  width: 76px;
+  height: 76px;
+
+  margin: 0 auto 16px;
+
+  border-radius: 50%;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  color: #ffffff;
+
+  font-size: 40px;
+  font-weight: 950;
+}
+
+.custom-modal-icon.modal-success {
+  background: linear-gradient(
+    135deg,
+    #ff941e,
+    #ed6b00
+  );
+
+  box-shadow:
+    0 12px 26px rgba(239, 108, 0, 0.28);
+}
+
+.custom-modal-icon.modal-error {
+  background: linear-gradient(
+    135deg,
+    #e43f3f,
+    #b71f1f
+  );
+
+  box-shadow:
+    0 12px 26px rgba(190, 34, 34, 0.24);
+}
+
+.custom-modal-icon.modal-info {
+  background: #171717;
+
+  box-shadow:
+    0 12px 26px rgba(0, 0, 0, 0.2);
+}
+
+.custom-modal-brand {
+  margin-bottom: 8px;
+
+  color: #ef7200;
+
+  font-size: 9px;
+  font-weight: 950;
+
+  letter-spacing: 1.7px;
+}
+
+.custom-modal h2 {
+  margin: 0;
+
+  color: #1d1d1d;
+
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.custom-modal p {
+  max-width: 290px;
+
+  margin: 10px auto 0;
+
+  color: #777777;
+
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.custom-modal-detail {
+  margin-top: 17px;
+
+  padding: 12px 14px;
+
+  border: 1px solid #ffd2a8;
+  border-radius: 12px;
+
+  background: #fff6ed;
+
+  color: #b75200;
+
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.custom-modal-button {
+  width: 100%;
+  min-height: 50px;
+
+  margin-top: 21px;
+
+  border: 0;
+  border-radius: 14px;
+
+  color: #ffffff;
+
+  font-size: 14px;
+  font-weight: 900;
+
+  cursor: pointer;
+}
+
+.custom-modal-button.button-success {
+  background: linear-gradient(
+    135deg,
+    #ff921b,
+    #ed6a00
+  );
+
+  box-shadow:
+    0 9px 20px rgba(239, 106, 0, 0.23);
+}
+
+.custom-modal-button.button-error {
+  background: #252525;
+}
+
+.custom-modal-button.button-info {
+  background: linear-gradient(
+    135deg,
+    #ff921b,
+    #ed6a00
+  );
+}
+
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes modalSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 480px) {
+  .custom-modal-overlay {
+    padding: 18px;
+  }
+
+  .custom-modal {
+    max-width: 340px;
+    border-radius: 22px;
+  }
+}
