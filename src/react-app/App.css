@@ -2249,3 +2249,220 @@ h1 {
     height: 52px;
   }
 }
+/* =========================================
+   VEDÚCI ÚDRŽBY
+   ========================================= */
+
+.manager-login-icon {
+  width: 78px;
+  height: 78px;
+  margin: 15px auto 18px;
+  border-radius: 23px;
+  background: linear-gradient(135deg, #272727, #080808);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 35px;
+  box-shadow: 0 15px 30px rgba(0,0,0,.18);
+}
+
+.manager-header-badge {
+  display: inline-flex;
+  margin-top: 18px;
+  padding: 7px 11px;
+  border-radius: 9px;
+  background: #171717;
+  color: #f47a00;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 1.4px;
+}
+
+.manager-welcome {
+  margin-top: 13px;
+}
+
+.manager-dashboard {
+  padding-bottom: 82px;
+}
+
+.manager-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 17px;
+}
+
+.manager-stat-card {
+  min-height: 105px;
+  border: 1px solid #e5e5e5;
+  border-radius: 17px;
+  padding: 13px;
+  background: #fafafa;
+  text-align: left;
+  cursor: pointer;
+  transition: .18s ease;
+}
+
+.manager-stat-card:hover {
+  transform: translateY(-1px);
+  border-color: #f1b16f;
+}
+
+.manager-stat-active {
+  border-color: #f47a00;
+  background: #fff6ed;
+  box-shadow: 0 8px 22px rgba(239,112,0,.09);
+}
+
+.manager-stat-icon {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 20px;
+}
+
+.manager-stat-card strong {
+  display: block;
+  color: #1d1d1d;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.manager-stat-card > span:last-child {
+  display: block;
+  margin-top: 7px;
+  color: #777;
+  font-size: 9px;
+  font-weight: 850;
+}
+
+.manager-issue-card {
+  border-left: 3px solid #f47a00;
+}
+
+.manager-detail-role {
+  display: table;
+  margin: 2px auto 11px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: #171717;
+  color: #f47a00;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 1.2px;
+}
+
+.manager-task-alert {
+  margin-top: 19px;
+  padding: 14px;
+  border: 1px solid #ffd09f;
+  border-radius: 16px;
+  background: #fff6ed;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.manager-task-alert > span {
+  width: 43px;
+  height: 43px;
+  flex: 0 0 43px;
+  border-radius: 13px;
+  background: #171717;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+}
+
+.manager-task-alert small {
+  display: block;
+  color: #d66a00;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 1px;
+}
+
+.manager-task-alert strong {
+  display: block;
+  margin-top: 3px;
+  color: #5d4330;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.manager-return-button {
+  border: 1px solid #bdd4ed;
+  background: #f0f7ff;
+  color: #356b9e;
+}
+
+.manager-operations-button {
+  border: 1px solid #d3c5ef;
+  background: #f6f2ff;
+  color: #654994;
+}
+
+.manager-waiting-info {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid #d5c5ee;
+  border-radius: 16px;
+  background: #f7f3ff;
+  display: flex;
+  gap: 13px;
+  align-items: center;
+}
+
+.manager-waiting-info > span {
+  width: 43px;
+  height: 43px;
+  flex: 0 0 43px;
+  border-radius: 13px;
+  background: #6b4c98;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+}
+
+.manager-waiting-info small {
+  display: block;
+  color: #8f7aad;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 1px;
+}
+
+.manager-waiting-info strong {
+  display: block;
+  margin-top: 3px;
+  color: #604782;
+  font-size: 11px;
+}
+
+.manager-dialog-role {
+  margin: 2px auto 12px;
+  text-align: center;
+  color: #f47a00;
+  font-size: 8px;
+  font-weight: 950;
+  letter-spacing: 1.5px;
+}
+
+.status-operations {
+  background: #f3ecff;
+  color: #64428f;
+}
+
+@media (max-width: 370px) {
+  .manager-stats-grid {
+    gap: 7px;
+  }
+
+  .manager-stat-card {
+    min-height: 98px;
+    padding: 11px;
+  }
+}
