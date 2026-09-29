@@ -1,485 +1,543 @@
 * {
-	box-sizing: border-box;
+  box-sizing: border-box;
 }
 
 :root {
-	font-family:
-		Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-		sans-serif;
-	color: #1b1b1b;
-	background: #f3f3f3;
-	font-synthesis: none;
-	text-rendering: optimizeLegibility;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #171717;
+  background: #eceeef;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
 }
 
 body {
-	margin: 0;
-	min-width: 320px;
-	min-height: 100vh;
-	background:
-		linear-gradient(
-			180deg,
-			#171717 0px,
-			#171717 245px,
-			#f3f3f3 245px,
-			#f3f3f3 100%
-		);
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 50% -100px, #ff9b31 0, #ed7200 250px, transparent 251px),
+    linear-gradient(180deg, #151515 0 250px, #eceeef 250px 100%);
 }
 
 button,
 input,
 textarea {
-	font: inherit;
+  font: inherit;
 }
 
 button {
-	cursor: pointer;
+  cursor: pointer;
 }
+
+/* =========================================
+   HLAVNÝ RÁM APLIKÁCIE
+   ========================================= */
 
 .app-shell {
-	min-height: 100vh;
-	display: flex;
-	align-items: flex-start;
-	justify-content: center;
-	padding: 32px 20px;
-}
-
-.home-shell {
-	padding-top: 34px;
+  width: 100%;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 28px 16px 45px;
 }
 
 .app-card {
-	width: 100%;
-	max-width: 520px;
-	background: #ffffff;
-	border-radius: 28px;
-	padding: 30px;
-	box-shadow:
-		0 20px 55px rgba(0, 0, 0, 0.18),
-		0 2px 8px rgba(0, 0, 0, 0.05);
+  width: 100%;
+  max-width: 430px;
+  min-height: 720px;
+  background: #ffffff;
+  border-radius: 30px;
+  overflow: hidden;
+  padding: 0 22px 26px;
+  box-shadow:
+    0 26px 70px rgba(0, 0, 0, 0.22),
+    0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
+/* =========================================
+   DOMOVSKÁ OBRAZOVKA
+   ========================================= */
+
 .home-card {
-	text-align: center;
+  text-align: center;
 }
 
 .brand-area {
-	margin-bottom: 28px;
+  margin: 0 -22px 25px;
+  padding: 30px 24px 27px;
+  background: #171717;
+  border-bottom: 5px solid #f47a00;
+  position: relative;
+}
+
+.brand-area::after {
+  content: "";
+  position: absolute;
+  bottom: -14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 28px;
+  background: #171717;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
 
 .tatralandia-logo {
-	display: block;
-	max-width: 310px;
-	width: 82%;
-	height: auto;
-	margin: 0 auto;
-	object-fit: contain;
+  display: block;
+  width: auto;
+  max-width: 245px;
+  height: 72px;
+  object-fit: contain;
+  margin: 0 auto;
+  background: white;
+  border-radius: 13px;
+  padding: 6px 10px;
 }
 
 .brand-description {
-	margin-top: 14px;
-	color: #727272;
-	font-size: 12px;
-	font-weight: 800;
-	letter-spacing: 2px;
+  margin-top: 14px;
+  color: #c5c5c5;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 2.2px;
 }
 
+/* =========================================
+   HLAVNÉ TLAČIDLO
+   ========================================= */
+
 .report-button {
-	width: 100%;
-	border: none;
-	border-radius: 20px;
-	padding: 23px 20px;
-	background:
-		linear-gradient(135deg, #ff8a00 0%, #f56a00 100%);
-	color: white;
-	display: grid;
-	grid-template-columns: 52px 1fr 30px;
-	align-items: center;
-	text-align: left;
-	gap: 12px;
-	box-shadow:
-		0 12px 28px rgba(244, 105, 0, 0.28);
-	transition:
-		transform 0.16s ease,
-		box-shadow 0.16s ease;
+  width: 100%;
+  min-height: 116px;
+  margin-top: 7px;
+  border: 0;
+  border-radius: 22px;
+  padding: 18px;
+  background: linear-gradient(135deg, #ff921e 0%, #ed6a00 100%);
+  color: #ffffff;
+  display: grid;
+  grid-template-columns: 58px 1fr 28px;
+  align-items: center;
+  gap: 13px;
+  text-align: left;
+  box-shadow:
+    0 13px 28px rgba(239, 108, 0, 0.29),
+    inset 0 1px rgba(255, 255, 255, 0.25);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
 .report-button:hover {
-	transform: translateY(-2px);
-	box-shadow:
-		0 16px 34px rgba(244, 105, 0, 0.34);
+  transform: translateY(-2px);
+  box-shadow: 0 17px 34px rgba(239, 108, 0, 0.36);
 }
 
 .report-button:active {
-	transform: translateY(0);
+  transform: scale(0.99);
 }
 
 .report-button-icon {
-	width: 48px;
-	height: 48px;
-	border-radius: 14px;
-	background: rgba(0, 0, 0, 0.18);
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 25px;
-}
-
-.report-button-content {
-	display: flex;
-	flex-direction: column;
+  width: 56px;
+  height: 56px;
+  border-radius: 17px;
+  background: #202020;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .report-button-content strong {
-	font-size: 22px;
-	font-weight: 900;
+  display: block;
+  font-size: 21px;
+  line-height: 1.15;
+  font-weight: 900;
 }
 
 .report-button-content span {
-	margin-top: 3px;
-	font-size: 13px;
-	opacity: 0.9;
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  line-height: 1.35;
+  opacity: 0.92;
 }
 
 .arrow {
-	font-size: 36px;
-	font-weight: 300;
-	text-align: right;
+  font-size: 35px;
+  font-weight: 300;
+  text-align: center;
 }
 
+/* =========================================
+   PRIHLÁSENIA
+   ========================================= */
+
 .employee-login-title {
-	margin: 32px 0 13px;
-	text-align: left;
-	font-size: 11px;
-	font-weight: 900;
-	letter-spacing: 1.5px;
-	color: #8b8b8b;
+  margin: 33px 2px 12px;
+  text-align: left;
+  color: #8d8d8d;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1.8px;
 }
 
 .role-buttons {
-	display: flex;
-	flex-direction: column;
-	gap: 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .role-button {
-	width: 100%;
-	border: 1px solid #e5e5e5;
-	border-radius: 16px;
-	background: #ffffff;
-	padding: 15px;
-	display: grid;
-	grid-template-columns: 46px 1fr 24px;
-	gap: 13px;
-	align-items: center;
-	text-align: left;
-	transition:
-		background 0.15s ease,
-		border-color 0.15s ease,
-		transform 0.15s ease;
+  width: 100%;
+  min-height: 72px;
+  border: 1px solid #e6e6e6;
+  border-radius: 17px;
+  padding: 12px 13px;
+  background: #fafafa;
+  display: grid;
+  grid-template-columns: 48px 1fr 22px;
+  align-items: center;
+  gap: 13px;
+  text-align: left;
+  transition: 0.15s ease;
 }
 
 .role-button:hover {
-	background: #fff8f1;
-	border-color: #ffb067;
-	transform: translateY(-1px);
+  border-color: #f3a45c;
+  background: #fff8f1;
+  transform: translateY(-1px);
 }
 
 .role-icon {
-	width: 44px;
-	height: 44px;
-	border-radius: 12px;
-	background: #171717;
-	color: #ffffff;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 21px;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: #1b1b1b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
 }
 
 .role-button strong {
-	display: block;
-	color: #202020;
-	font-size: 15px;
-	font-weight: 850;
+  display: block;
+  color: #1f1f1f;
+  font-size: 14px;
+  font-weight: 850;
 }
 
 .role-button span {
-	display: block;
-	color: #858585;
-	font-size: 12px;
-	margin-top: 3px;
+  display: block;
+  margin-top: 4px;
+  color: #969696;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .role-arrow {
-	font-size: 28px;
-	color: #ef7500;
-	text-align: right;
+  color: #ee7500;
+  font-size: 27px;
 }
 
 .footer-line {
-	margin-top: 30px;
-	padding-top: 18px;
-	border-top: 1px solid #eeeeee;
-	font-size: 11px;
-	color: #aaaaaa;
+  margin-top: 27px;
+  padding-top: 18px;
+  border-top: 1px solid #eeeeee;
+  font-size: 10px;
+  color: #aaaaaa;
 }
 
+/* =========================================
+   FORMULÁR
+   ========================================= */
+
 .top-bar {
-	display: grid;
-	grid-template-columns: 1fr auto 1fr;
-	align-items: center;
-	margin-bottom: 27px;
+  margin: 0 -22px 28px;
+  min-height: 93px;
+  padding: 18px 20px;
+  background: #171717;
+  border-bottom: 4px solid #f47a00;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
 }
 
 .back-button {
-	justify-self: start;
-	border: none;
-	background: transparent;
-	color: #eb7000;
-	font-weight: 800;
-	padding: 7px 0;
+  justify-self: start;
+  border: 0;
+  background: transparent;
+  color: #ff8a16;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 6px 0;
 }
 
 .small-logo {
-	width: 150px;
-	height: auto;
-	object-fit: contain;
+  display: block;
+  width: auto;
+  max-width: 150px;
+  height: 48px;
+  object-fit: contain;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 4px 7px;
 }
 
 .section-badge {
-	width: fit-content;
-	margin: 0 auto 12px;
-	background: #171717;
-	color: #ff8500;
-	font-size: 10px;
-	font-weight: 900;
-	letter-spacing: 1.5px;
-	padding: 7px 12px;
-	border-radius: 999px;
+  display: table;
+  margin: 0 auto 10px;
+  background: #fff0df;
+  border: 1px solid #ffd2a5;
+  color: #d76000;
+  border-radius: 30px;
+  padding: 6px 11px;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 1.6px;
 }
 
 h1 {
-	text-align: center;
-	margin: 0;
-	font-size: 29px;
-	font-weight: 900;
-	color: #181818;
+  margin: 0;
+  color: #181818;
+  text-align: center;
+  font-size: 27px;
+  line-height: 1.1;
+  font-weight: 900;
 }
 
 .subtitle {
-	text-align: center;
-	max-width: 390px;
-	margin: 10px auto 29px;
-	color: #777777;
-	font-size: 14px;
-	line-height: 1.55;
+  max-width: 340px;
+  margin: 11px auto 28px;
+  color: #858585;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .report-form {
-	display: flex;
-	flex-direction: column;
-	gap: 19px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .report-form label:not(.photo-upload) {
-	font-size: 13px;
-	font-weight: 800;
-	color: #353535;
-	text-align: left;
+  color: #333333;
+  text-align: left;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .report-form input[type="text"],
 .report-form textarea {
-	width: 100%;
-	margin-top: 7px;
-	padding: 15px 15px;
-	border: 1px solid #dedede;
-	border-radius: 13px;
-	background: #fafafa;
-	color: #222222;
-	outline: none;
-	transition:
-		border-color 0.15s ease,
-		box-shadow 0.15s ease,
-		background 0.15s ease;
+  width: 100%;
+  margin-top: 7px;
+  border: 1px solid #dddddd;
+  border-radius: 13px;
+  padding: 14px 14px;
+  background: #f8f8f8;
+  color: #1f1f1f;
+  outline: none;
+  font-size: 14px;
+  transition: 0.15s ease;
 }
 
 .report-form input[type="text"]:focus,
 .report-form textarea:focus {
-	border-color: #ff8500;
-	background: white;
-	box-shadow: 0 0 0 4px rgba(255, 133, 0, 0.1);
+  border-color: #f47a00;
+  background: #ffffff;
+  box-shadow: 0 0 0 4px rgba(244, 122, 0, 0.11);
 }
 
 .report-form textarea {
-	resize: vertical;
-	min-height: 125px;
+  resize: vertical;
+  min-height: 120px;
 }
 
 .photo-upload {
-	position: relative;
-	display: flex;
-	align-items: center;
-	gap: 15px;
-	padding: 18px;
-	border: 2px dashed #cccccc;
-	border-radius: 15px;
-	background: #fafafa;
-	cursor: pointer;
-	text-align: left;
-	transition:
-		border-color 0.15s ease,
-		background 0.15s ease;
+  position: relative;
+  min-height: 82px;
+  border: 2px dashed #d1d1d1;
+  border-radius: 16px;
+  background: #fafafa;
+  padding: 15px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  cursor: pointer;
 }
 
 .photo-upload:hover {
-	border-color: #ff8500;
-	background: #fff8f1;
+  border-color: #f47a00;
+  background: #fff8f1;
 }
 
 .photo-icon {
-	width: 48px;
-	height: 48px;
-	flex: 0 0 48px;
-	border-radius: 13px;
-	background: #181818;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	font-size: 23px;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: 14px;
+  background: #1b1b1b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
 }
 
 .photo-upload strong {
-	display: block;
-	font-size: 14px;
-	color: #222222;
+  display: block;
+  color: #222222;
+  font-size: 13px;
 }
 
 .photo-upload span {
-	display: block;
-	margin-top: 3px;
-	font-size: 12px;
-	color: #888888;
+  display: block;
+  margin-top: 4px;
+  color: #929292;
+  font-size: 11px;
 }
 
 .photo-upload input {
-	position: absolute;
-	opacity: 0;
-	pointer-events: none;
-	width: 1px;
-	height: 1px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .photo-selected {
-	background: #fff4e8;
-	border: 1px solid #ffd09f;
-	color: #a94e00;
-	padding: 12px 14px;
-	border-radius: 11px;
-	font-size: 12px;
-	font-weight: 700;
+  padding: 11px 12px;
+  border: 1px solid #ffd3a8;
+  border-radius: 11px;
+  background: #fff5eb;
+  color: #b45100;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .submit-button {
-	width: 100%;
-	border: none;
-	border-radius: 15px;
-	background:
-		linear-gradient(135deg, #ff8a00 0%, #ef6800 100%);
-	color: white;
-	padding: 17px;
-	font-size: 16px;
-	font-weight: 900;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	gap: 8px;
-	box-shadow: 0 9px 22px rgba(239, 104, 0, 0.23);
+  width: 100%;
+  min-height: 53px;
+  border: 0;
+  border-radius: 15px;
+  background: linear-gradient(135deg, #ff9018, #ec6900);
+  color: white;
+  font-size: 15px;
+  font-weight: 900;
+  box-shadow: 0 10px 21px rgba(236, 105, 0, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
 }
 
-.submit-button:hover {
-	filter: brightness(0.97);
-}
+/* =========================================
+   POTVRDENIE
+   ========================================= */
 
 .success-card {
-	text-align: center;
-	padding-top: 45px;
-	padding-bottom: 40px;
+  text-align: center;
+  padding-top: 38px;
 }
 
 .success-logo {
-	width: 210px;
-	height: auto;
-	margin-bottom: 30px;
+  display: block;
+  width: auto;
+  max-width: 220px;
+  height: 65px;
+  object-fit: contain;
+  margin: 0 auto 33px;
 }
 
 .success-icon {
-	width: 84px;
-	height: 84px;
-	margin: 0 auto 22px;
-	border-radius: 50%;
-	background: #ff7c00;
-	color: white;
-	font-size: 45px;
-	font-weight: 900;
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	box-shadow: 0 12px 28px rgba(255, 124, 0, 0.25);
+  width: 82px;
+  height: 82px;
+  margin: 0 auto 21px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ff921e, #ed6a00);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 43px;
+  font-weight: 900;
+  box-shadow: 0 13px 30px rgba(239, 108, 0, 0.28);
 }
 
 .success-card p {
-	color: #747474;
-	line-height: 1.6;
-	margin: 15px auto 28px;
-	max-width: 350px;
+  max-width: 320px;
+  margin: 16px auto 28px;
+  color: #7b7b7b;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
-@media (max-width: 600px) {
-	body {
-		background:
-			linear-gradient(
-				180deg,
-				#171717 0px,
-				#171717 180px,
-				#f3f3f3 180px,
-				#f3f3f3 100%
-			);
-	}
+/* =========================================
+   MOBIL
+   ========================================= */
 
-	.app-shell {
-		padding: 17px 12px 28px;
-	}
+@media (max-width: 480px) {
+  body {
+    background: #ffffff;
+  }
 
-	.app-card {
-		border-radius: 23px;
-		padding: 23px 18px;
-	}
+  .app-shell {
+    padding: 0;
+    align-items: stretch;
+  }
 
-	.home-shell {
-		padding-top: 18px;
-	}
+  .app-card {
+    max-width: none;
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    box-shadow: none;
+    padding-left: 18px;
+    padding-right: 18px;
+  }
 
-	.tatralandia-logo {
-		width: 88%;
-		max-width: 290px;
-	}
+  .brand-area,
+  .top-bar {
+    margin-left: -18px;
+    margin-right: -18px;
+  }
 
-	.report-button {
-		padding: 20px 16px;
-		grid-template-columns: 48px 1fr 25px;
-	}
+  .brand-area {
+    padding-top: calc(27px + env(safe-area-inset-top));
+  }
 
-	.report-button-content strong {
-		font-size: 20px;
-	}
+  .tatralandia-logo {
+    max-width: 220px;
+    height: 65px;
+  }
 
-	.small-logo {
-		width: 115px;
-	}
+  .report-button {
+    min-height: 108px;
+  }
 
-	h1 {
-		font-size: 26px;
-	}
+  .report-button-content strong {
+    font-size: 19px;
+  }
+}
+
+/* =========================================
+   VEĽKÝ MONITOR
+   ========================================= */
+
+@media (min-width: 900px) {
+  .app-shell {
+    padding-top: 42px;
+  }
+
+  .app-card {
+    max-width: 430px;
+  }
 }
