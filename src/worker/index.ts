@@ -14,7 +14,48 @@ app.get("/api/", (c) => {
 });
 
 /* =========================================================
-   FOTOGRAFIA Z R2
+   POMOCNÁ FUNKCIA - ULOŽENIE FOTOGRAFIE
+   ========================================================= */
+
+async function savePhoto(
+  bucket: R2Bucket,
+  photo: File,
+  folder: string
+): Promise<string> {
+  if (!photo.type.startsWith("image/")) {
+    throw new Error("Priložený súbor nie je fotografia.");
+  }
+
+  if (photo.size > 10 * 1024 * 1024) {
+    throw new Error("Fotografia je príliš veľká. Maximum je 10 MB.");
+  }
+
+  let extension =
+    photo.name.split(".").pop()?.toLowerCase() || "jpg";
+
+  extension = extension.replace(/[^a-z0-9]/g, "");
+
+  if (!extension) {
+    extension = "jpg";
+  }
+
+  const key =
+    `${folder}/` +
+    `${Date.now()}-` +
+    `${crypto.randomUUID()}.` +
+    extension;
+
+  await bucket.put(key, photo.stream(), {
+    httpMetadata: {
+      contentType: photo.type || "image/jpeg",
+    },
+  });
+
+  return key;
+}
+
+/* =========================================================
+   NAČÍTANIE FOTOGRAFIE
    ========================================================= */
 
 app.get("/api/photo", async (c) => {
@@ -54,7 +95,7 @@ app.get("/api/photo", async (c) => {
 });
 
 /* =========================================================
-   NOVÁ ZÁVADA + VOLITEĽNÁ FOTOGRAFIA
+   NOVÁ ZÁVADA
    ========================================================= */
 
 app.post("/api/issues", async (c) => {
@@ -73,16 +114,11 @@ app.post("/api/issues", async (c) => {
       formData.get("description") || ""
     ).trim();
 
-    if (
-      !reporterName ||
-      !location ||
-      !description
-    ) {
+    if (!reporterName || !location || !description) {
       return c.json(
         {
           success: false,
-          error:
-            "Chýba meno, miesto alebo popis závady.",
+          error: "Chýba meno, miesto alebo popis závady.",
         },
         400
       );
@@ -92,53 +128,25 @@ app.post("/api/issues", async (c) => {
 
     const photo = formData.get("photo");
 
-    if (
-      photo &&
-      photo instanceof File &&
-      photo.size > 0
-    ) {
-      if (!photo.type.startsWith("image/")) {
+    if (photo instanceof File && photo.size > 0) {
+      try {
+        photoKey = await savePhoto(
+          c.env.PHOTOS,
+          photo,
+          "issues/original"
+        );
+      } catch (error) {
         return c.json(
           {
             success: false,
             error:
-              "Priložený súbor nie je fotografia.",
+              error instanceof Error
+                ? error.message
+                : "Fotografiu sa nepodarilo uložiť.",
           },
           400
         );
       }
-
-      // Max 10 MB na jednu fotografiu.
-      if (photo.size > 10 * 1024 * 1024) {
-        return c.json(
-          {
-            success: false,
-            error:
-              "Fotografia je príliš veľká. Maximum je 10 MB.",
-          },
-          400
-        );
-      }
-
-      const extension =
-        photo.name.split(".").pop()?.toLowerCase() ||
-        "jpg";
-
-      photoKey =
-        `issues/original/` +
-        `${Date.now()}-` +
-        `${crypto.randomUUID()}.${extension}`;
-
-      await c.env.PHOTOS.put(
-        photoKey,
-        photo.stream(),
-        {
-          httpMetadata: {
-            contentType:
-              photo.type || "image/jpeg",
-          },
-        }
-      );
     }
 
     const result = await c.env.DB.prepare(
@@ -163,8 +171,7 @@ app.post("/api/issues", async (c) => {
       )
       .run();
 
-    const issueId =
-      result.meta.last_row_id;
+    const issueId = result.meta.last_row_id;
 
     await c.env.DB.prepare(
       `
@@ -199,8 +206,7 @@ app.post("/api/issues", async (c) => {
     return c.json(
       {
         success: false,
-        error:
-          "Nepodarilo sa uložiť závadu.",
+        error: "Nepodarilo sa uložiť závadu.",
       },
       500
     );
@@ -242,8 +248,7 @@ app.get("/api/issues", async (c) => {
     return c.json(
       {
         success: false,
-        error:
-          "Nepodarilo sa načítať závady.",
+        error: "Nepodarilo sa načítať závady.",
       },
       500
     );
@@ -254,164 +259,346 @@ app.get("/api/issues", async (c) => {
    PREVZATIE ZÁVADY
    ========================================================= */
 
-app.post(
-  "/api/issues/:id/take",
-  async (c) => {
-    try {
-      const id = Number(
-        c.req.param("id")
+app.post("/api/issues/:id/take", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    const body = await c.req.json();
+
+    const workerName = String(
+      body.worker_name || ""
+    ).trim();
+
+    if (!workerName) {
+      return c.json(
+        {
+          success: false,
+          error: "Chýba meno údržbára.",
+        },
+        400
       );
+    }
 
-      const body =
-        await c.req.json();
+    const updateResult = await c.env.DB.prepare(
+      `
+      UPDATE issues
+      SET
+        status = 'progress',
+        current_worker_name = ?,
+        last_actor_name = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+        AND status = 'new'
+      `
+    )
+      .bind(workerName, workerName, id)
+      .run();
 
-      const workerName = String(
-        body.worker_name || ""
-      ).trim();
+    if (!updateResult.meta.changes) {
+      return c.json(
+        {
+          success: false,
+          error:
+            "Závadu už pravdepodobne prevzal iný pracovník.",
+        },
+        409
+      );
+    }
 
-      if (!workerName) {
+    await c.env.DB.prepare(
+      `
+      INSERT INTO issue_events (
+        issue_id,
+        event_type,
+        actor_role,
+        actor_name,
+        message,
+        created_at
+      )
+      VALUES (?, 'taken', 'maintenance', ?, ?, CURRENT_TIMESTAMP)
+      `
+    )
+      .bind(
+        id,
+        workerName,
+        "Údržbár prevzal závadu."
+      )
+      .run();
+
+    const updatedIssue = await c.env.DB.prepare(
+      `
+      SELECT *
+      FROM issues
+      WHERE id = ?
+      `
+    )
+      .bind(id)
+      .first();
+
+    return c.json({
+      success: true,
+      issue: updatedIssue,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return c.json(
+      {
+        success: false,
+        error: "Nepodarilo sa prevziať závadu.",
+      },
+      500
+    );
+  }
+});
+
+/* =========================================================
+   AKCIA NA ROZPRACOVANEJ ZÁVADE
+   ========================================================= */
+
+app.post("/api/issues/:id/status", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Neplatné číslo závady.",
+        },
+        400
+      );
+    }
+
+    const formData = await c.req.formData();
+
+    const workerName = String(
+      formData.get("worker_name") || ""
+    ).trim();
+
+    const newStatus = String(
+      formData.get("status") || ""
+    ).trim();
+
+    const message = String(
+      formData.get("message") || ""
+    ).trim();
+
+    if (!workerName) {
+      return c.json(
+        {
+          success: false,
+          error: "Chýba meno údržbára.",
+        },
+        400
+      );
+    }
+
+    if (
+      !["closed", "material", "manager"].includes(
+        newStatus
+      )
+    ) {
+      return c.json(
+        {
+          success: false,
+          error: "Neplatný stav závady.",
+        },
+        400
+      );
+    }
+
+    if (!message) {
+      return c.json(
+        {
+          success: false,
+          error:
+            "Napíšte krátky komentár k vykonanej akcii.",
+        },
+        400
+      );
+    }
+
+    let actionPhotoKey: string | null = null;
+
+    const actionPhoto = formData.get("photo");
+
+    if (
+      actionPhoto instanceof File &&
+      actionPhoto.size > 0
+    ) {
+      let folder = "issues/actions";
+
+      if (newStatus === "closed") {
+        folder = "issues/resolved";
+      }
+
+      if (newStatus === "material") {
+        folder = "issues/material";
+      }
+
+      if (newStatus === "manager") {
+        folder = "issues/manager";
+      }
+
+      try {
+        actionPhotoKey = await savePhoto(
+          c.env.PHOTOS,
+          actionPhoto,
+          folder
+        );
+      } catch (error) {
         return c.json(
           {
             success: false,
             error:
-              "Chýba meno údržbára.",
+              error instanceof Error
+                ? error.message
+                : "Fotografiu sa nepodarilo uložiť.",
           },
           400
         );
       }
+    }
 
-      const updateResult =
-        await c.env.DB.prepare(
-          `
-          UPDATE issues
-          SET
-            status = 'progress',
-            current_worker_name = ?,
-            last_actor_name = ?,
-            updated_at = CURRENT_TIMESTAMP
-          WHERE id = ?
-            AND status = 'new'
-          `
-        )
-          .bind(
-            workerName,
-            workerName,
-            id
-          )
-          .run();
+    const closedSql =
+      newStatus === "closed"
+        ? "CURRENT_TIMESTAMP"
+        : "NULL";
 
-      if (
-        !updateResult.meta.changes
-      ) {
-        return c.json(
-          {
-            success: false,
-            error:
-              "Závadu už pravdepodobne prevzal iný pracovník.",
-          },
-          409
-        );
-      }
+    const updateResult = await c.env.DB.prepare(
+      `
+      UPDATE issues
+      SET
+        status = ?,
+        last_actor_name = ?,
+        updated_at = CURRENT_TIMESTAMP,
+        closed_at = ${closedSql}
+      WHERE id = ?
+        AND status = 'progress'
+      `
+    )
+      .bind(newStatus, workerName, id)
+      .run();
 
-      await c.env.DB.prepare(
-        `
-        INSERT INTO issue_events (
-          issue_id,
-          event_type,
-          actor_role,
-          actor_name,
-          message,
-          created_at
-        )
-        VALUES (?, 'taken', 'maintenance', ?, ?, CURRENT_TIMESTAMP)
-        `
-      )
-        .bind(
-          id,
-          workerName,
-          "Údržbár prevzal závadu."
-        )
-        .run();
-
-      const updatedIssue =
-        await c.env.DB.prepare(
-          `
-          SELECT *
-          FROM issues
-          WHERE id = ?
-          `
-        )
-          .bind(id)
-          .first();
-
-      return c.json({
-        success: true,
-        issue: updatedIssue,
-      });
-    } catch (error) {
-      console.error(error);
-
+    if (!updateResult.meta.changes) {
       return c.json(
         {
           success: false,
           error:
-            "Nepodarilo sa prevziať závadu.",
+            "Stav závady sa medzitým zmenil. Obnovte zoznam.",
         },
-        500
+        409
       );
     }
+
+    let eventType = "updated";
+
+    if (newStatus === "closed") {
+      eventType = "resolved";
+    }
+
+    if (newStatus === "material") {
+      eventType = "material_requested";
+    }
+
+    if (newStatus === "manager") {
+      eventType = "escalated_to_manager";
+    }
+
+    await c.env.DB.prepare(
+      `
+      INSERT INTO issue_events (
+        issue_id,
+        event_type,
+        actor_role,
+        actor_name,
+        message,
+        photo_key,
+        created_at
+      )
+      VALUES (?, ?, 'maintenance', ?, ?, ?, CURRENT_TIMESTAMP)
+      `
+    )
+      .bind(
+        id,
+        eventType,
+        workerName,
+        message,
+        actionPhotoKey
+      )
+      .run();
+
+    const updatedIssue = await c.env.DB.prepare(
+      `
+      SELECT *
+      FROM issues
+      WHERE id = ?
+      `
+    )
+      .bind(id)
+      .first();
+
+    return c.json({
+      success: true,
+      issue: updatedIssue,
+      action_photo_key: actionPhotoKey,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return c.json(
+      {
+        success: false,
+        error: "Akciu sa nepodarilo uložiť.",
+      },
+      500
+    );
   }
-);
+});
 
 /* =========================================================
-   HISTÓRIA JEDNEJ ZÁVADY
+   HISTÓRIA ZÁVADY
    ========================================================= */
 
-app.get(
-  "/api/issues/:id/events",
-  async (c) => {
-    try {
-      const id = Number(
-        c.req.param("id")
-      );
+app.get("/api/issues/:id/events", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
 
-      const result =
-        await c.env.DB.prepare(
-          `
-          SELECT
-            id,
-            issue_id,
-            event_type,
-            actor_role,
-            actor_name,
-            message,
-            photo_key,
-            created_at
-          FROM issue_events
-          WHERE issue_id = ?
-          ORDER BY id DESC
-          `
-        )
-          .bind(id)
-          .all();
+    const result = await c.env.DB.prepare(
+      `
+      SELECT
+        id,
+        issue_id,
+        event_type,
+        actor_role,
+        actor_name,
+        message,
+        photo_key,
+        created_at
+      FROM issue_events
+      WHERE issue_id = ?
+      ORDER BY id DESC
+      `
+    )
+      .bind(id)
+      .all();
 
-      return c.json({
-        success: true,
-        events: result.results,
-      });
-    } catch (error) {
-      console.error(error);
+    return c.json({
+      success: true,
+      events: result.results,
+    });
+  } catch (error) {
+    console.error(error);
 
-      return c.json(
-        {
-          success: false,
-          error:
-            "Nepodarilo sa načítať históriu.",
-        },
-        500
-      );
-    }
+    return c.json(
+      {
+        success: false,
+        error: "Nepodarilo sa načítať históriu.",
+      },
+      500
+    );
   }
-);
+});
 
 export default app;
