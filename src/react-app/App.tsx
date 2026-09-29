@@ -99,6 +99,7 @@ type RatingRecord = {
   actor_name: string | null;
   message: string | null;
   created_at: string;
+  rated_worker_name?: string | null;
 };
 
 type ModalType =
@@ -367,6 +368,109 @@ function App() {
     )}`;
   };
 
+  const compressImageForUpload = async (
+    file: File
+  ): Promise<File> => {
+    if (
+      !file.type.startsWith("image/") ||
+      file.type === "image/gif" ||
+      file.size < 700 * 1024
+    ) {
+      return file;
+    }
+
+    try {
+      const imageBitmap =
+        await createImageBitmap(file);
+
+      const maxDimension = 1600;
+      const scale = Math.min(
+        1,
+        maxDimension /
+          Math.max(
+            imageBitmap.width,
+            imageBitmap.height
+          )
+      );
+
+      const width = Math.max(
+        1,
+        Math.round(
+          imageBitmap.width * scale
+        )
+      );
+      const height = Math.max(
+        1,
+        Math.round(
+          imageBitmap.height * scale
+        )
+      );
+
+      const canvas =
+        document.createElement("canvas");
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const context =
+        canvas.getContext("2d");
+
+      if (!context) {
+        imageBitmap.close();
+        return file;
+      }
+
+      context.drawImage(
+        imageBitmap,
+        0,
+        0,
+        width,
+        height
+      );
+
+      imageBitmap.close();
+
+      const blob =
+        await new Promise<Blob | null>(
+          (resolve) =>
+            canvas.toBlob(
+              resolve,
+              "image/jpeg",
+              0.78
+            )
+        );
+
+      if (
+        !blob ||
+        blob.size >= file.size
+      ) {
+        return file;
+      }
+
+      const baseName =
+        file.name.replace(
+          /\.[^.]+$/,
+          ""
+        ) || "foto";
+
+      return new File(
+        [blob],
+        `${baseName}.jpg`,
+        {
+          type: "image/jpeg",
+          lastModified: Date.now(),
+        }
+      );
+    } catch (error) {
+      console.warn(
+        "Kompresia fotografie sa nepodarila, odosiela sa originál.",
+        error
+      );
+
+      return file;
+    }
+  };
+
   /* =========================================================
      NAČÍTANIE ZÁVAD
      ========================================================= */
@@ -514,10 +618,15 @@ function App() {
       );
 
       if (photoFile) {
+        const compressedPhoto =
+          await compressImageForUpload(
+            photoFile
+          );
+
         formData.append(
           "photo",
-          photoFile,
-          photoFile.name
+          compressedPhoto,
+          compressedPhoto.name
         );
       }
 
@@ -874,10 +983,15 @@ function App() {
         );
 
         if (actionPhoto) {
+          const compressedPhoto =
+            await compressImageForUpload(
+              actionPhoto
+            );
+
           formData.append(
             "photo",
-            actionPhoto,
-            actionPhoto.name
+            compressedPhoto,
+            compressedPhoto.name
           );
         }
 
@@ -1026,10 +1140,15 @@ function App() {
         );
 
         if (managerActionPhoto) {
+          const compressedPhoto =
+            await compressImageForUpload(
+              managerActionPhoto
+            );
+
           formData.append(
             "photo",
-            managerActionPhoto,
-            managerActionPhoto.name
+            compressedPhoto,
+            compressedPhoto.name
           );
         }
 
@@ -1153,10 +1272,15 @@ function App() {
       formData.append("action", operationsActionMode);
       formData.append("message", operationsActionComment.trim());
       if (operationsActionPhoto) {
+        const compressedPhoto =
+          await compressImageForUpload(
+            operationsActionPhoto
+          );
+
         formData.append(
           "photo",
-          operationsActionPhoto,
-          operationsActionPhoto.name
+          compressedPhoto,
+          compressedPhoto.name
         );
       }
 
@@ -1220,7 +1344,16 @@ function App() {
       formData.append("location", taskLocation.trim());
       formData.append("description", taskDescription.trim());
       if (taskPhoto) {
-        formData.append("photo", taskPhoto, taskPhoto.name);
+        const compressedPhoto =
+          await compressImageForUpload(
+            taskPhoto
+          );
+
+        formData.append(
+          "photo",
+          compressedPhoto,
+          compressedPhoto.name
+        );
       }
       const response = await fetch("/api/operations/tasks", {
         method: "POST",
@@ -1517,6 +1650,50 @@ function App() {
     }
   };
 
+  const getMaintenanceWorkerFromEvents = (
+    events: IssueEvent[]
+  ) => {
+    const preferred =
+      events.find(
+        (event) =>
+          event.actor_role ===
+            "maintenance" &&
+          [
+            "resolved",
+            "escalated_to_manager",
+            "material_requested",
+          ].includes(
+            event.event_type
+          ) &&
+          Boolean(
+            event.actor_name
+          )
+      );
+
+    if (preferred?.actor_name) {
+      return preferred.actor_name;
+    }
+
+    const taken =
+      events.find(
+        (event) =>
+          event.actor_role ===
+            "maintenance" &&
+          event.event_type ===
+            "taken" &&
+          Boolean(
+            event.actor_name
+          )
+      );
+
+    return (
+      taken?.actor_name ||
+      selectedIssue
+        ?.current_worker_name ||
+      null
+    );
+  };
+
   const renderCommunicationSection = (
     events: IssueEvent[]
   ) => (
@@ -1756,7 +1933,9 @@ function App() {
       Record<string, { name: string; up: number; down: number }>
     >((acc, rating) => {
       const issue = issues.find((item) => item.id === rating.issue_id);
-      const worker = issue?.current_worker_name;
+      const worker =
+        rating.rated_worker_name ||
+        issue?.current_worker_name;
       if (!worker) return acc;
       if (!acc[worker]) acc[worker] = { name: worker, up: 0, down: 0 };
       if (rating.event_type === "rating_up") acc[worker].up += 1;
@@ -2220,6 +2399,25 @@ function App() {
   ) => {
     if (!selectedIssue) return null;
 
+    const ratedWorkerName =
+      getMaintenanceWorkerFromEvents(
+        issueEvents
+      );
+
+    const issueRatings =
+      issueEvents.filter(
+        (event) =>
+          [
+            "rating_up",
+            "rating_down",
+          ].includes(
+            event.event_type
+          )
+      );
+
+    const latestRating =
+      issueRatings[0];
+
     return (
       <>
         <main className="app-shell">
@@ -2329,14 +2527,23 @@ function App() {
                   HODNOTENIE OPRAVY
                 </div>
 
-                {issueEvents.filter((event) =>
-                  ["rating_up", "rating_down"].includes(event.event_type)
-                ).length > 0 ? (
+                <div className={`rating-status-badge ${
+                  latestRating?.event_type === "rating_up"
+                    ? "rating-status-up"
+                    : latestRating?.event_type === "rating_down"
+                    ? "rating-status-down"
+                    : "rating-status-empty"
+                }`}>
+                  {latestRating?.event_type === "rating_up"
+                    ? "👍 Pozitívne hodnotenie"
+                    : latestRating?.event_type === "rating_down"
+                    ? "👎 Negatívne hodnotenie"
+                    : "○ Nehodnotené"}
+                </div>
+
+                {issueRatings.length > 0 ? (
                   <div className="rating-given-list">
-                    {issueEvents
-                      .filter((event) =>
-                        ["rating_up", "rating_down"].includes(event.event_type)
-                      )
+                    {issueRatings
                       .map((event) => (
                         <div className="rating-given-item" key={event.id}>
                           <span className={event.event_type === "rating_up" ? "rating-thumb-up" : "rating-thumb-down"}>
@@ -2356,10 +2563,10 @@ function App() {
                   </div>
                 )}
 
-                {titleRole !== "ÚDRŽBA" && selectedIssue.current_worker_name && (
+                {titleRole !== "ÚDRŽBA" && ratedWorkerName && (
                   <div className="rating-entry-box">
                     <div className="rating-worker-line">
-                      Hodnotený údržbár: <strong>{selectedIssue.current_worker_name}</strong>
+                      Hodnotený údržbár: <strong>{ratedWorkerName}</strong>
                     </div>
                     <div className="rating-choice-row">
                       <button
@@ -2404,6 +2611,12 @@ function App() {
                     >
                       {actionLoading ? "Ukladám..." : "Uložiť hodnotenie"}
                     </button>
+                  </div>
+                )}
+
+                {titleRole !== "ÚDRŽBA" && !ratedWorkerName && (
+                  <div className="rating-worker-missing">
+                    Pri tejto závade sa nepodarilo nájsť údržbára, ktorý ju riešil.
                   </div>
                 )}
               </div>
@@ -2935,9 +3148,6 @@ function App() {
                 <div><span>👍</span><strong>{positiveRatings}</strong><small>Palec hore</small></div>
                 <div><span>👎</span><strong>{negativeRatings}</strong><small>Palec dole</small></div>
               </div>
-              <p className="stats-note">
-                Podklad pre mesačné vyhodnotenie. Finálne rozhodnutie o odmene zostáva na vedení.
-              </p>
               {employeeRatingStats.length === 0 ? (
                 <div className="communication-empty">Tento mesiac zatiaľ nie sú hodnotenia údržbárov.</div>
               ) : (
@@ -3268,6 +3478,20 @@ function App() {
                           {issue.last_actor_name ||
                             "Údržba"}
                         </small>
+
+                        <div className={`history-rating-state ${
+                          (issue.rating_up_count || 0) > 0
+                            ? "history-rating-up"
+                            : (issue.rating_down_count || 0) > 0
+                            ? "history-rating-down"
+                            : "history-rating-empty"
+                        }`}>
+                          {(issue.rating_up_count || 0) > 0
+                            ? `👍 ${issue.rating_up_count} hodnotenie`
+                            : (issue.rating_down_count || 0) > 0
+                            ? `👎 ${issue.rating_down_count} hodnotenie`
+                            : "○ Nehodnotené"}
+                        </div>
 
                       </div>
 
@@ -4248,6 +4472,20 @@ function App() {
                         {issue.last_actor_name ||
                           "Údržba"}
                       </small>
+
+                      <div className={`history-rating-state ${
+                        (issue.rating_up_count || 0) > 0
+                          ? "history-rating-up"
+                          : (issue.rating_down_count || 0) > 0
+                          ? "history-rating-down"
+                          : "history-rating-empty"
+                      }`}>
+                        {(issue.rating_up_count || 0) > 0
+                          ? `👍 ${issue.rating_up_count} hodnotenie`
+                          : (issue.rating_down_count || 0) > 0
+                          ? `👎 ${issue.rating_down_count} hodnotenie`
+                          : "○ Nehodnotené"}
+                      </div>
 
                     </div>
 
@@ -5264,6 +5502,10 @@ function App() {
           <div className="footer-line">
             Tatralandia • interný systém
             hlásenia závad
+          </div>
+
+          <div className="app-author">
+            Autor aplikácie: Jaroslav Pažítka
           </div>
 
         </section>
