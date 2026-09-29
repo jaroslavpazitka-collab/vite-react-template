@@ -13,9 +13,11 @@ type Screen =
   | "maintenance-history-detail"
   | "manager-login"
   | "manager-dashboard"
+  | "manager-decision"
   | "manager-issue"
   | "manager-history"
   | "manager-history-detail"
+  | "manager-statistics"
   | "operations-login"
   | "operations-dashboard"
   | "operations-decision"
@@ -30,12 +32,6 @@ type MaintenanceFilter =
   | "progress"
   | "material"
   | "manager";
-
-type ManagerFilter =
-  | "material"
-  | "manager"
-  | "operations"
-  | "closed";
 
 type OperationsStatusFilter =
   | "all"
@@ -253,14 +249,17 @@ function App() {
     setLoggedManagerName,
   ] = useState("");
 
-  const [
-    managerFilter,
-    setManagerFilter,
-  ] =
-    useState<ManagerFilter>("manager");
+  const [managerStatusFilter, setManagerStatusFilter] =
+    useState<OperationsStatusFilter>("all");
 
   const [managerSearch, setManagerSearch] =
     useState("");
+
+  const [managerAgeFilter, setManagerAgeFilter] =
+    useState(0);
+
+  const [managerStaleFilter, setManagerStaleFilter] =
+    useState(0);
 
   /* =========================================================
      PREVÁDZKOVÝ MANAŽÉR
@@ -770,7 +769,10 @@ function App() {
 
       await loadIssues();
 
-      setManagerFilter("manager");
+      setManagerStatusFilter("all");
+      setManagerAgeFilter(0);
+      setManagerStaleFilter(0);
+      setManagerSearch("");
 
       setScreen(
         "manager-dashboard"
@@ -1827,15 +1829,8 @@ function App() {
   };
 
   /* =========================================================
-     FILTRE VEDÚCEHO
+     PREHĽAD VEDÚCEHO ÚDRŽBY
      ========================================================= */
-
-  const managerFilteredIssues =
-    issues.filter(
-      (issue) =>
-        issue.status === managerFilter &&
-        matchesIssueSearch(issue, managerSearch)
-    );
 
   const managerMaterialCount =
     issues.filter(
@@ -1861,19 +1856,22 @@ function App() {
   const closedCount =
     closedIssues.length;
 
-  const managerFilterTitle: Record<
-    ManagerFilter,
-    string
-  > = {
-    material:
-      "Čaká na materiál",
-    manager:
-      "Posunuté vedúcemu",
-    operations:
-      "U prevádzkového manažéra",
-    closed:
-      "Uzavreté závady",
-  };
+  const managerDecisionIssues = issues.filter(
+    (issue) =>
+      issue.status === "manager" ||
+      issue.status === "material"
+  );
+
+  const managerFilteredIssues = issues.filter((issue) => {
+    if (
+      managerStatusFilter !== "all" &&
+      issue.status !== managerStatusFilter
+    ) return false;
+    if (!matchesIssueSearch(issue, managerSearch)) return false;
+    if (managerAgeFilter > 0 && daysSince(issue.created_at) < managerAgeFilter) return false;
+    if (managerStaleFilter > 0 && daysSince(issue.updated_at) < managerStaleFilter) return false;
+    return true;
+  });
 
   /* =========================================================
      PREHĽAD PREVÁDZKOVÉHO MANAŽÉRA
@@ -1943,6 +1941,44 @@ function App() {
       return acc;
     }, {})
   ).sort((a, b) => b.up + b.down - (a.up + a.down));
+
+  const managerBottomNav = (
+    active: "overview" | "decision" | "history" | "statistics"
+  ) => (
+    <div className="operations-bottom-menu">
+      <button
+        className={active === "overview" ? "bottom-menu-active" : ""}
+        onClick={() => setScreen("manager-dashboard")}
+      >
+        <span>▦</span>
+        Prehľad
+      </button>
+      <button
+        className={active === "decision" ? "bottom-menu-active" : ""}
+        onClick={() => setScreen("manager-decision")}
+      >
+        <span>⚠️</span>
+        Na rozhodnutie
+      </button>
+      <button
+        className={active === "history" ? "bottom-menu-active" : ""}
+        onClick={() => setScreen("manager-history")}
+      >
+        <span>📋</span>
+        História
+      </button>
+      <button
+        className={active === "statistics" ? "bottom-menu-active" : ""}
+        onClick={() => {
+          loadRatings();
+          setScreen("manager-statistics");
+        }}
+      >
+        <span>📊</span>
+        Štatistika
+      </button>
+    </div>
+  );
 
   const operationsBottomNav = (
     active: "overview" | "decision" | "history" | "statistics"
@@ -3519,30 +3555,186 @@ function App() {
               )}
 
             </div>
-
-            <div className="maintenance-bottom-menu">
-
-              <button
-                onClick={() =>
-                  setScreen(
-                    "manager-dashboard"
-                  )
-                }
-              >
-                <span>🛠️</span>
-                Prehľad
-              </button>
-
-              <button className="bottom-menu-active">
-                <span>📋</span>
-                História
-              </button>
-
-            </div>
+            {managerBottomNav("history")}
 
           </section>
         </main>
 
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     VEDÚCI ÚDRŽBY - NA ROZHODNUTIE
+     ========================================================= */
+
+  if (screen === "manager-decision") {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card operations-dashboard-card">
+            <div className="dashboard-header">
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutManager}>Odhlásiť</button>
+            </div>
+
+            <div className="manager-header-badge">VEDÚCI ÚDRŽBY</div>
+
+            <div className="history-header">
+              <div>
+                <div className="section-label">ZÁVADY NA ROZHODNUTIE</div>
+                <h1>Na rozhodnutie</h1>
+              </div>
+              <div className="history-count operations-count-badge">
+                {managerDecisionIssues.length}
+              </div>
+            </div>
+
+            <p className="history-subtitle">
+              Závady posunuté vedúcemu údržby alebo čakajúce na materiál.
+            </p>
+
+            <div className="issue-list">
+              {managerDecisionIssues.length === 0 ? (
+                <div className="empty-box">
+                  Momentálne na vás nečaká žiadne rozhodnutie.
+                </div>
+              ) : (
+                managerDecisionIssues.map((issue) => (
+                  <button
+                    key={issue.id}
+                    className="issue-card-new operations-decision-card"
+                    onClick={async () => {
+                      setSelectedIssue(issue);
+                      setIssueEvents([]);
+                      setScreen("manager-issue");
+                      await loadIssueEvents(issue.id);
+                    }}
+                  >
+                    <div className="issue-main">
+                      <div className="issue-top">
+                        <strong>#{String(issue.id).padStart(4, "0")}</strong>
+                        <span>{daysSince(issue.created_at)} dní</span>
+                      </div>
+                      <h3>{issue.description}</h3>
+                      <p>📍 {issue.location}</p>
+                      <div className="operations-issue-meta">
+                        <span className={`mini-status status-${issue.status}`}>
+                          {statusLabel(issue.status)}
+                        </span>
+                        <span>
+                          Bez pohybu: <strong>{daysSince(issue.updated_at)} d</strong>
+                        </span>
+                      </div>
+                    </div>
+                    <div className="issue-arrow">›</div>
+                  </button>
+                ))
+              )}
+            </div>
+
+            {managerBottomNav("decision")}
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     VEDÚCI ÚDRŽBY - ŠTATISTIKA
+     ========================================================= */
+
+  if (screen === "manager-statistics") {
+    const maxLocation = Math.max(1, ...locationStats.map(([, count]) => count));
+    const positiveRatings = currentMonthRatings.filter(
+      (item) => item.event_type === "rating_up"
+    ).length;
+    const negativeRatings = currentMonthRatings.filter(
+      (item) => item.event_type === "rating_down"
+    ).length;
+
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card operations-dashboard-card">
+            <div className="dashboard-header">
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutManager}>Odhlásiť</button>
+            </div>
+
+            <div className="manager-header-badge">VEDÚCI ÚDRŽBY</div>
+
+            <div className="dashboard-title-row">
+              <div>
+                <div className="section-label">VÝKON A TRENDY</div>
+                <h1>Štatistika</h1>
+              </div>
+              <button
+                className="notification-bell"
+                onClick={() => Promise.all([loadIssues(), loadRatings()])}
+              >
+                ↻
+              </button>
+            </div>
+
+            <div className="operations-kpi-grid">
+              <div className="operations-kpi-card"><small>VŠETKY ZÁVADY</small><strong>{issues.length}</strong></div>
+              <div className="operations-kpi-card"><small>OTVORENÉ</small><strong>{openIssues.length}</strong></div>
+              <div className="operations-kpi-card"><small>UZAVRETÉ</small><strong>{closedCount}</strong></div>
+              <div className="operations-kpi-card"><small>NA ROZHODNUTIE</small><strong>{managerDecisionIssues.length}</strong></div>
+              <div className="operations-kpi-card"><small>ČAKÁ NA MATERIÁL</small><strong>{materialCount}</strong></div>
+              <div className="operations-kpi-card"><small>PRIEMERNÉ RIEŠENIE</small><strong>{averageResolutionDays.toFixed(1)} d</strong></div>
+            </div>
+
+            <div className="operations-stats-panel">
+              <div className="operations-panel-title">NAJČASTEJŠIE LOKALITY</div>
+              {locationStats.length === 0 ? (
+                <div className="communication-empty">Zatiaľ nie sú dáta.</div>
+              ) : (
+                locationStats.map(([locationName, count]) => (
+                  <div className="location-stat-row" key={locationName}>
+                    <div className="location-stat-label"><span>{locationName}</span><strong>{count}</strong></div>
+                    <div className="location-stat-track">
+                      <div style={{ width: `${Math.max(8, (count / maxLocation) * 100)}%` }} />
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="operations-stats-panel">
+              <div className="operations-panel-title">SPÄTNÁ VÄZBA - TENTO MESIAC</div>
+              <div className="rating-month-summary">
+                <div><span>👍</span><strong>{positiveRatings}</strong><small>Palec hore</small></div>
+                <div><span>👎</span><strong>{negativeRatings}</strong><small>Palec dole</small></div>
+              </div>
+              {employeeRatingStats.length === 0 ? (
+                <div className="communication-empty">Tento mesiac zatiaľ nie sú hodnotenia údržbárov.</div>
+              ) : (
+                <div className="employee-rating-table">
+                  {employeeRatingStats.map((worker) => {
+                    const total = worker.up + worker.down;
+                    const positive = total ? Math.round((worker.up / total) * 100) : 0;
+                    return (
+                      <div className="employee-rating-row" key={worker.name}>
+                        <div>
+                          <strong>{worker.name}</strong>
+                          <small>{total} hodnotení • {positive}% pozitívnych</small>
+                        </div>
+                        <span className="employee-rating-up">👍 {worker.up}</span>
+                        <span className="employee-rating-down">👎 {worker.down}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {managerBottomNav("statistics")}
+          </section>
+        </main>
         {modalWindow}
       </>
     );
@@ -3869,367 +4061,153 @@ function App() {
   }
 
   /* =========================================================
-     MANAGER DASHBOARD
+     VEDÚCI ÚDRŽBY - PREHĽAD VŠETKÝCH ZÁVAD
      ========================================================= */
 
-  if (
-    screen ===
-    "manager-dashboard"
-  ) {
+  if (screen === "manager-dashboard") {
+    const statusCards: Array<[OperationsStatusFilter, string, number, string]> = [
+      ["all", "Všetky", issues.length, "▦"],
+      ["new", "Nové", newCount, "⚠️"],
+      ["progress", "Rozpracované", progressCount, "🔧"],
+      ["material", "Materiál", materialCount, "📦"],
+      ["manager", "U vedúceho", managerCount, "🛠️"],
+      ["operations", "U prevádzkového", operationsCount, "📊"],
+      ["closed", "Uzavreté", closedCount, "✅"],
+    ];
+    const ageOptions = [0, 1, 7, 30, 365];
+
     return (
       <>
         <main className="app-shell">
-
-          <section className="app-card dashboard-card manager-dashboard">
-
+          <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
-
-              <img
-                src={tatralandiaLogo}
-                alt="Tatralandia"
-                className="dashboard-logo"
-              />
-
-              <button
-                className="logout-button"
-                onClick={logoutManager}
-              >
-                Odhlásiť
-              </button>
-
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutManager}>Odhlásiť</button>
             </div>
 
-            <div className="manager-header-badge">
-              VEDÚCI ÚDRŽBY
-            </div>
+            <div className="manager-header-badge">VEDÚCI ÚDRŽBY</div>
 
-            <div className="welcome-block manager-welcome">
-
+            <div className="welcome-block operations-welcome">
               <div>
-                <span>
-                  PRIHLÁSENÝ VEDÚCI
-                </span>
-
-                <h2>
-                  {loggedManagerName}
-                </h2>
+                <span>PRIHLÁSENÝ VEDÚCI</span>
+                <h2>{loggedManagerName}</h2>
               </div>
-
-              <div className="worker-avatar">
-                🛠️
-              </div>
-
+              <div className="worker-avatar">🛠️</div>
             </div>
 
             <div className="dashboard-title-row">
-
               <div>
-                <div className="section-label">
-                  RIADENIE ÚDRŽBY
-                </div>
-
-                <h1>
-                  Prehľad
-                </h1>
+                <div className="section-label">CELÁ ÚDRŽBA</div>
+                <h1>Prehľad</h1>
               </div>
-
-              <button
-                className="notification-bell"
-                onClick={loadIssues}
-              >
-                🔔
-
-                {(managerIncomingCount +
-                  managerMaterialCount) >
-                  0 && (
-                  <span>
-                    {managerIncomingCount +
-                      managerMaterialCount}
-                  </span>
-                )}
-
-              </button>
-
+              <button className="notification-bell" onClick={loadIssues}>↻</button>
             </div>
 
-            <div className="manager-stats-grid">
-
-              <button
-                className={`manager-stat-card ${
-                  managerFilter ===
-                  "material"
-                    ? "manager-stat-active"
-                    : ""
-                }`}
-                onClick={() =>
-                  setManagerFilter(
-                    "material"
-                  )
-                }
-              >
-                <span className="manager-stat-icon">
-                  📦
-                </span>
-
-                <strong>
-                  {managerMaterialCount}
-                </strong>
-
-                <span>
-                  Čaká na materiál
-                </span>
-              </button>
-
-              <button
-                className={`manager-stat-card ${
-                  managerFilter ===
-                  "manager"
-                    ? "manager-stat-active"
-                    : ""
-                }`}
-                onClick={() =>
-                  setManagerFilter(
-                    "manager"
-                  )
-                }
-              >
-                <span className="manager-stat-icon">
-                  🛠️
-                </span>
-
-                <strong>
-                  {managerIncomingCount}
-                </strong>
-
-                <span>
-                  Posunuté mne
-                </span>
-              </button>
-
-              <button
-                className={`manager-stat-card ${
-                  managerFilter ===
-                  "operations"
-                    ? "manager-stat-active"
-                    : ""
-                }`}
-                onClick={() =>
-                  setManagerFilter(
-                    "operations"
-                  )
-                }
-              >
-                <span className="manager-stat-icon">
-                  📊
-                </span>
-
-                <strong>
-                  {operationsCount}
-                </strong>
-
-                <span>
-                  U manažéra
-                </span>
-              </button>
-
-              <button
-                className={`manager-stat-card ${
-                  managerFilter ===
-                  "closed"
-                    ? "manager-stat-active"
-                    : ""
-                }`}
-                onClick={() =>
-                  setManagerFilter(
-                    "closed"
-                  )
-                }
-              >
-                <span className="manager-stat-icon">
-                  ✅
-                </span>
-
-                <strong>
-                  {closedCount}
-                </strong>
-
-                <span>
-                  Uzavreté
-                </span>
-              </button>
-
+            <div className="operations-status-grid">
+              {statusCards.map(([status, label, count, icon]) => (
+                <button
+                  key={status}
+                  className={`operations-status-card ${
+                    managerStatusFilter === status ? "operations-status-active" : ""
+                  }`}
+                  onClick={() => setManagerStatusFilter(status)}
+                >
+                  <span>{icon}</span><strong>{count}</strong><small>{label}</small>
+                </button>
+              ))}
             </div>
 
-            <div className="manager-search-wrap">
+            <div className="manager-search-wrap operations-search-wrap">
               <span>🔎</span>
               <input
                 value={managerSearch}
                 onChange={(e) => setManagerSearch(e.target.value)}
-                placeholder="Hľadať v závadách podľa kľúčového slova..."
+                placeholder="Hľadať podľa popisu, miesta, mena alebo komentára..."
               />
-              {managerSearch && (
-                <button onClick={() => setManagerSearch("")}>×</button>
-              )}
+              {managerSearch && <button onClick={() => setManagerSearch("")}>×</button>}
             </div>
 
-            <div className="dashboard-section">
+            <div className="operations-filter-block">
+              <div className="operations-filter-title">VEK ZÁVADY OD NAHLÁSENIA</div>
+              <div className="operations-filter-chips">
+                {ageOptions.map((value) => (
+                  <button
+                    key={`manager-age-${value}`}
+                    className={managerAgeFilter === value ? "filter-chip-active" : ""}
+                    onClick={() => setManagerAgeFilter(value)}
+                  >
+                    {value === 0 ? "Všetky" : value === 365 ? "> 1 rok" : `> ${value} dní`}
+                  </button>
+                ))}
+              </div>
+            </div>
 
+            <div className="operations-filter-block operations-stale-block">
+              <div className="operations-filter-title">BEZ POHYBU / POSLEDNEJ AKCIE</div>
+              <div className="operations-filter-chips">
+                {ageOptions.map((value) => (
+                  <button
+                    key={`manager-stale-${value}`}
+                    className={managerStaleFilter === value ? "filter-chip-active" : ""}
+                    onClick={() => setManagerStaleFilter(value)}
+                  >
+                    {value === 0 ? "Všetky" : value === 365 ? "> 1 rok" : `> ${value} dní`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="dashboard-section operations-issue-section">
               <div className="dashboard-section-heading">
-
-                <strong>
-                  {
-                    managerFilterTitle[
-                      managerFilter
-                    ]
-                  }
-                </strong>
-
-                <span>
-                  {
-                    managerFilteredIssues.length
-                  }{" "}
-                  položiek
-                </span>
-
+                <strong>Závady</strong>
+                <span>{managerFilteredIssues.length} položiek</span>
               </div>
 
               <div className="issue-list">
-
                 {issuesLoading ? (
-                  <div className="loading-box">
-                    Načítavam závady...
-                  </div>
-                ) : managerFilteredIssues.length ===
-                  0 ? (
-                  <div className="empty-box">
-                    V tejto kategórii
-                    momentálne nie sú
-                    žiadne závady.
-                  </div>
+                  <div className="loading-box">Načítavam závady...</div>
+                ) : managerFilteredIssues.length === 0 ? (
+                  <div className="empty-box">Pre zvolené filtre sa nenašli žiadne závady.</div>
                 ) : (
-                  managerFilteredIssues.map(
-                    (issue) => (
-                      <button
-                        className="issue-card-new manager-issue-card"
-                        key={issue.id}
-                        onClick={async () => {
-                          setSelectedIssue(
-                            issue
-                          );
-
-                          setIssueEvents([]);
-
-                          setScreen(
-                            "manager-issue"
-                          );
-
-                          await loadIssueEvents(
-                            issue.id
-                          );
-                        }}
-                      >
-
-                        <div className="issue-main">
-
-                          <div className="issue-top">
-
-                            <strong>
-                              #
-                              {String(
-                                issue.id
-                              ).padStart(
-                                4,
-                                "0"
-                              )}
-                            </strong>
-
-                            <span>
-                              {formatDate(
-                                issue.updated_at
-                              )}
-                            </span>
-
-                          </div>
-
-                          <h3>
-                            {
-                              issue.description
-                            }
-                          </h3>
-
-                          <p>
-                            📍{" "}
-                            {
-                              issue.location
-                            }
-                          </p>
-
-                          <div className="issue-reporter">
-                            Posledná akcia:{" "}
-                            <strong>
-                              {issue.last_actor_name ||
-                                "—"}
-                            </strong>
-                          </div>
-
+                  managerFilteredIssues.map((issue) => (
+                    <button
+                      className="issue-card-new operations-issue-card"
+                      key={issue.id}
+                      onClick={async () => {
+                        setSelectedIssue(issue);
+                        setIssueEvents([]);
+                        setScreen("manager-issue");
+                        await loadIssueEvents(issue.id);
+                      }}
+                    >
+                      <div className="issue-main">
+                        <div className="issue-top">
+                          <strong>#{String(issue.id).padStart(4, "0")}</strong>
+                          <span>{formatDate(issue.created_at)}</span>
                         </div>
-
-                        {issue.photo_key ? (
-                          <img
-                            src={getPhotoUrl(
-                              issue.photo_key
-                            )}
-                            alt="Fotografia"
-                            className="issue-photo"
-                          />
-                        ) : (
-                          <div className="issue-no-photo">
-                            <span>
-                              📷
-                            </span>
-                            <small>
-                              bez fotky
-                            </small>
-                          </div>
-                        )}
-
-                        <div className="issue-arrow">
-                          ›
+                        <h3>{issue.description}</h3>
+                        <p>📍 {issue.location}</p>
+                        <div className="operations-issue-meta">
+                          <span className={`mini-status status-${issue.status}`}>{statusLabel(issue.status)}</span>
+                          <span>Vek: <strong>{daysSince(issue.created_at)} d</strong></span>
+                          <span>Bez pohybu: <strong>{daysSince(issue.updated_at)} d</strong></span>
                         </div>
-
-                      </button>
-                    )
-                  )
+                      </div>
+                      {issue.photo_key ? (
+                        <img src={getPhotoUrl(issue.photo_key)} alt="Fotografia" className="issue-photo" />
+                      ) : (
+                        <div className="issue-no-photo">📷</div>
+                      )}
+                      <div className="issue-arrow">›</div>
+                    </button>
+                  ))
                 )}
-
               </div>
-
             </div>
 
-            <div className="maintenance-bottom-menu">
-
-              <button className="bottom-menu-active">
-                <span>🛠️</span>
-                Prehľad
-              </button>
-
-              <button
-                onClick={() =>
-                  setScreen(
-                    "manager-history"
-                  )
-                }
-              >
-                <span>📋</span>
-                História
-              </button>
-
-            </div>
-
+            {managerBottomNav("overview")}
           </section>
-
         </main>
-
         {modalWindow}
       </>
     );
