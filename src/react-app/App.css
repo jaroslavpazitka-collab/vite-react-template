@@ -877,3 +877,271 @@ h1 {
 .maintenance-bottom-menu .bottom-menu-active {
   color: #ef7200;
 }
+/* =========================================
+   OPRAVA DASHBOARDU A FILTROV
+   ========================================= */
+
+.stat-card {
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.stat-card:hover {
+  border-color: #ffc58f;
+  transform: translateY(-1px);
+}
+
+.stat-card.stat-active {
+  border-color: #f47a00;
+  background: #fff3e7;
+  box-shadow: 0 6px 16px rgba(244, 122, 0, 0.13);
+}
+
+/* =========================================
+   NOVÝ ZOZNAM ZÁVAD
+   ========================================= */
+
+.issue-card-new {
+  width: 100%;
+  min-height: 105px;
+  border: 1px solid #e7e7e7;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 12px 12px 12px 15px;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px 14px;
+  gap: 11px;
+  align-items: center;
+
+  text-align: left;
+
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    transform 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.issue-card-new:hover {
+  border-color: #f1ad6d;
+  background: #fffaf5;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.05);
+}
+
+.issue-main {
+  min-width: 0;
+}
+
+.issue-main .issue-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.issue-main .issue-top strong {
+  color: #ef7100;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.issue-main .issue-top span {
+  color: #aaaaaa;
+  font-size: 9px;
+}
+
+.issue-main h3 {
+  margin: 0 0 8px;
+  color: #202020;
+  font-size: 14px;
+  line-height: 1.25;
+  font-weight: 850;
+}
+
+.issue-main p {
+  margin: 0;
+  color: #6f6f6f;
+  font-size: 10px;
+  line-height: 1.3;
+}
+
+.issue-main .issue-reporter {
+  margin-top: 7px;
+  color: #999999;
+  font-size: 9px;
+}
+
+.issue-main .issue-reporter strong {
+  color: #555555;
+}
+
+/* =========================================
+   FOTOGRAFIA ZÁVADY
+   ========================================= */
+
+.issue-photo {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  object-fit: cover;
+  background: #eeeeee;
+  border: 1px solid #e6e6e6;
+}
+
+.issue-no-photo {
+  width: 72px;
+  height: 72px;
+  border-radius: 12px;
+  background: #f3f3f3;
+  color: #b2b2b2;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  border: 1px solid #eeeeee;
+}
+
+.issue-no-photo span {
+  font-size: 20px;
+}
+
+.issue-no-photo small {
+  margin-top: 3px;
+  font-size: 8px;
+}
+
+.issue-card-new .issue-arrow {
+  color: #f47a00;
+  font-size: 25px;
+  text-align: center;
+}
+
+/* =========================================
+   NADPIS ZOZNAMU
+   ========================================= */
+
+.dashboard-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 11px;
+}
+
+.dashboard-section-heading strong {
+  color: #222222;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.dashboard-section-heading span {
+  color: #e86d00;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* =========================================
+   LEPŠIE ZAROVNANIE KARIET
+   ========================================= */
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.stat-card {
+  min-height: 112px;
+  padding: 14px;
+  border-radius: 16px;
+  text-align: left;
+}
+
+.stat-number {
+  display: block;
+  font-size: 27px;
+  line-height: 1;
+  font-weight: 950;
+}
+
+.stat-title {
+  display: block;
+  margin-top: 8px;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+}
+
+.stat-card small {
+  display: block;
+  margin-top: 4px;
+  font-size: 9px;
+  line-height: 1.3;
+}
+
+/* =========================================
+   MOBIL
+   ========================================= */
+
+@media (max-width: 480px) {
+  .issue-card-new {
+    grid-template-columns: minmax(0, 1fr) 66px 12px;
+    gap: 9px;
+    min-height: 100px;
+    padding: 11px 10px 11px 13px;
+  }
+
+  .issue-photo,
+  .issue-no-photo {
+    width: 66px;
+    height: 66px;
+  }
+
+  .issue-main h3 {
+    font-size: 13px;
+  }
+
+  .stats-grid {
+    gap: 8px;
+  }
+
+  .stat-card {
+    min-height: 108px;
+    padding: 13px;
+  }
+}
+
+/* =========================================
+   VEĽMI ÚZKY MOBIL
+   ========================================= */
+
+@media (max-width: 370px) {
+  .issue-card-new {
+    grid-template-columns: minmax(0, 1fr) 58px 10px;
+  }
+
+  .issue-photo,
+  .issue-no-photo {
+    width: 58px;
+    height: 58px;
+  }
+
+  .stat-number {
+    font-size: 24px;
+  }
+
+  .stat-title {
+    font-size: 11px;
+  }
+}
