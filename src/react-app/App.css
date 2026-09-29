@@ -1155,3 +1155,220 @@ h1 {
   text-align: center;
   font-size: 12px;
 }
+/* =========================================
+   DETAIL ZÁVADY
+   ========================================= */
+
+.issue-detail-card {
+  padding-bottom: 30px;
+}
+
+.issue-detail-number {
+  margin-top: 5px;
+  text-align: center;
+  color: #f17600;
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: 1.6px;
+}
+
+.issue-detail-status {
+  display: table;
+  margin: 10px auto 15px;
+  padding: 7px 13px;
+  border-radius: 30px;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.status-new {
+  background: #fff0df;
+  color: #db6500;
+}
+
+.status-progress {
+  background: #eaf4ff;
+  color: #176fb3;
+}
+
+.status-material {
+  background: #fff7cf;
+  color: #8f7000;
+}
+
+.status-manager {
+  background: #f3eaff;
+  color: #7044a0;
+}
+
+.status-closed {
+  background: #e8f7eb;
+  color: #258239;
+}
+
+.issue-detail-title {
+  max-width: 340px;
+  margin: 0 auto 25px;
+  font-size: 23px;
+  line-height: 1.25;
+}
+
+.issue-detail-box {
+  border: 1px solid #e8e8e8;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #fafafa;
+}
+
+.detail-row {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 15px 16px;
+  border-bottom: 1px solid #eaeaea;
+}
+
+.detail-row:last-child {
+  border-bottom: 0;
+}
+
+.detail-icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 12px;
+  background: #171717;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 19px;
+}
+
+.detail-row small,
+.detail-description small,
+.issue-being-solved small {
+  display: block;
+  margin-bottom: 3px;
+  color: #999;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 1px;
+}
+
+.detail-row strong {
+  color: #222;
+  font-size: 13px;
+}
+
+.detail-description {
+  margin-top: 18px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #f7f7f7;
+}
+
+.detail-description p {
+  margin: 7px 0 0;
+  color: #303030;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.detail-photo {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  margin-top: 16px;
+  border-radius: 17px;
+  object-fit: cover;
+}
+
+.detail-photo-placeholder {
+  margin-top: 16px;
+  min-height: 145px;
+  border: 2px dashed #dedede;
+  border-radius: 17px;
+  background: #fafafa;
+  color: #aaa;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.detail-photo-placeholder span {
+  font-size: 30px;
+}
+
+.detail-photo-placeholder strong {
+  margin-top: 7px;
+  color: #777;
+  font-size: 12px;
+}
+
+.detail-photo-placeholder small {
+  margin-top: 4px;
+  font-size: 9px;
+}
+
+.take-issue-button {
+  width: 100%;
+  min-height: 58px;
+  margin-top: 20px;
+  border: 0;
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    #ff9118,
+    #eb6800
+  );
+  color: white;
+  font-size: 16px;
+  font-weight: 900;
+  box-shadow: 0 10px 23px rgba(235, 104, 0, 0.26);
+}
+
+.take-issue-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.issue-being-solved {
+  margin-top: 20px;
+  padding: 15px;
+  border: 1px solid #b9d8f2;
+  border-radius: 16px;
+  background: #f0f8ff;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+}
+
+.issue-being-solved-icon {
+  width: 45px;
+  height: 45px;
+  flex: 0 0 45px;
+  border-radius: 13px;
+  background: #2377ae;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+}
+
+.issue-being-solved strong {
+  color: #235c80;
+  font-size: 13px;
+}
+
+.detail-back-button {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px solid #dddddd;
+  border-radius: 14px;
+  background: white;
+  color: #666;
+  padding: 13px;
+  font-size: 12px;
+  font-weight: 800;
+}
