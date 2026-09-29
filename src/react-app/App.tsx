@@ -15,7 +15,15 @@ type Screen =
   | "manager-dashboard"
   | "manager-issue"
   | "manager-history"
-  | "manager-history-detail";
+  | "manager-history-detail"
+  | "operations-login"
+  | "operations-dashboard"
+  | "operations-decision"
+  | "operations-issue"
+  | "operations-history"
+  | "operations-history-detail"
+  | "operations-statistics"
+  | "operations-new-task";
 
 type MaintenanceFilter =
   | "new"
@@ -28,6 +36,20 @@ type ManagerFilter =
   | "manager"
   | "operations"
   | "closed";
+
+type OperationsStatusFilter =
+  | "all"
+  | "new"
+  | "progress"
+  | "material"
+  | "manager"
+  | "operations"
+  | "closed";
+
+type OperationsActionMode =
+  | "return_manager"
+  | "close"
+  | null;
 
 type MaintenanceActionMode =
   | "resolve"
@@ -53,6 +75,9 @@ type Issue = {
   created_at: string;
   updated_at: string;
   closed_at: string | null;
+  event_text?: string;
+  rating_up_count?: number;
+  rating_down_count?: number;
 };
 
 type IssueEvent = {
@@ -63,6 +88,16 @@ type IssueEvent = {
   actor_name: string | null;
   message: string | null;
   photo_key: string | null;
+  created_at: string;
+};
+
+type RatingRecord = {
+  id: number;
+  issue_id: number;
+  event_type: "rating_up" | "rating_down";
+  actor_role: string | null;
+  actor_name: string | null;
+  message: string | null;
   created_at: string;
 };
 
@@ -223,6 +258,51 @@ function App() {
   ] =
     useState<ManagerFilter>("manager");
 
+  const [managerSearch, setManagerSearch] =
+    useState("");
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR
+     ========================================================= */
+
+  const [operationsName, setOperationsName] =
+    useState("");
+  const [operationsPassword, setOperationsPassword] =
+    useState("");
+  const [loggedOperationsName, setLoggedOperationsName] =
+    useState("");
+  const [operationsStatusFilter, setOperationsStatusFilter] =
+    useState<OperationsStatusFilter>("all");
+  const [operationsSearch, setOperationsSearch] =
+    useState("");
+  const [operationsAgeFilter, setOperationsAgeFilter] =
+    useState(0);
+  const [operationsStaleFilter, setOperationsStaleFilter] =
+    useState(0);
+  const [operationsIssueReturn, setOperationsIssueReturn] =
+    useState<"operations-dashboard" | "operations-decision">(
+      "operations-dashboard"
+    );
+
+  const [operationsActionMode, setOperationsActionMode] =
+    useState<OperationsActionMode>(null);
+  const [operationsActionComment, setOperationsActionComment] =
+    useState("");
+  const [operationsActionPhoto, setOperationsActionPhoto] =
+    useState<File | null>(null);
+  const [operationsActionPhotoName, setOperationsActionPhotoName] =
+    useState("");
+
+  const [taskLocation, setTaskLocation] = useState("");
+  const [taskDescription, setTaskDescription] = useState("");
+  const [taskPhoto, setTaskPhoto] = useState<File | null>(null);
+  const [taskPhotoName, setTaskPhotoName] = useState("");
+
+  const [ratings, setRatings] = useState<RatingRecord[]>([]);
+  const [ratingChoice, setRatingChoice] =
+    useState<"up" | "down" | null>(null);
+  const [ratingComment, setRatingComment] = useState("");
+
   /* =========================================================
      AKCIE ÚDRŽBÁRA
      ========================================================= */
@@ -326,6 +406,18 @@ function App() {
       );
     } finally {
       setIssuesLoading(false);
+    }
+  };
+
+  const loadRatings = async () => {
+    try {
+      const response = await fetch("/api/ratings");
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setRatings(data.ratings || []);
+      }
+    } catch (error) {
+      console.error(error);
     }
   };
 
@@ -580,6 +672,44 @@ function App() {
     setManagerName("");
     setManagerPassword("");
     setLoggedManagerName("");
+    setSelectedIssue(null);
+    setIssueEvents([]);
+    setScreen("home");
+  };
+
+  const loginOperations = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!operationsName.trim()) {
+      showModal(
+        "error",
+        "Chýba meno",
+        "Pred prihlásením napíšte svoje meno."
+      );
+      return;
+    }
+
+    if (operationsPassword !== "prevadzka1234") {
+      showModal(
+        "error",
+        "Nesprávne heslo",
+        "Zadané heslo prevádzkového manažéra nie je správne."
+      );
+      return;
+    }
+
+    setLoggedOperationsName(operationsName.trim());
+    await Promise.all([loadIssues(), loadRatings()]);
+    setOperationsStatusFilter("all");
+    setOperationsAgeFilter(0);
+    setOperationsStaleFilter(0);
+    setScreen("operations-dashboard");
+  };
+
+  const logoutOperations = () => {
+    setOperationsName("");
+    setOperationsPassword("");
+    setLoggedOperationsName("");
     setSelectedIssue(null);
     setIssueEvents([]);
     setScreen("home");
@@ -987,6 +1117,204 @@ function App() {
     };
 
   /* =========================================================
+     AKCIE PREVÁDZKOVÉHO MANAŽÉRA
+     ========================================================= */
+
+  const openOperationsAction = (mode: OperationsActionMode) => {
+    setOperationsActionComment("");
+    setOperationsActionPhoto(null);
+    setOperationsActionPhotoName("");
+    setOperationsActionMode(mode);
+  };
+
+  const closeOperationsAction = () => {
+    setOperationsActionMode(null);
+    setOperationsActionComment("");
+    setOperationsActionPhoto(null);
+    setOperationsActionPhotoName("");
+  };
+
+  const submitOperationsAction = async () => {
+    if (!selectedIssue || !operationsActionMode) return;
+
+    if (!operationsActionComment.trim()) {
+      showModal(
+        "error",
+        "Chýba komentár",
+        "Napíšte krátky komentár k rozhodnutiu."
+      );
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      const formData = new FormData();
+      formData.append("operations_name", loggedOperationsName);
+      formData.append("action", operationsActionMode);
+      formData.append("message", operationsActionComment.trim());
+      if (operationsActionPhoto) {
+        formData.append(
+          "photo",
+          operationsActionPhoto,
+          operationsActionPhoto.name
+        );
+      }
+
+      const response = await fetch(
+        `/api/issues/${selectedIssue.id}/operations-action`,
+        { method: "POST", body: formData }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        showModal(
+          "error",
+          "Rozhodnutie sa nepodarilo uložiť",
+          data.error || "Skúste to znova."
+        );
+        return;
+      }
+
+      setSelectedIssue(data.issue);
+      await Promise.all([
+        loadIssues(),
+        loadIssueEvents(selectedIssue.id),
+      ]);
+      closeOperationsAction();
+      showModal(
+        "success",
+        operationsActionMode === "close"
+          ? "Závada bola uzavretá"
+          : "Vrátené vedúcemu údržby",
+        operationsActionMode === "close"
+          ? "Prevádzkový manažér závadu uzavrel."
+          : "Závada bola vrátená vedúcemu údržby na ďalšie riešenie.",
+        `Rozhodol: ${loggedOperationsName}`
+      );
+    } catch (error) {
+      console.error(error);
+      showModal(
+        "error",
+        "Nastala chyba",
+        "Nepodarilo sa spojiť so serverom."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const submitOperationsTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!taskLocation.trim() || !taskDescription.trim()) {
+      showModal(
+        "error",
+        "Chýbajú údaje",
+        "Vyplňte miesto a popis novej úlohy."
+      );
+      return;
+    }
+
+    try {
+      setActionLoading(true);
+      const formData = new FormData();
+      formData.append("operations_name", loggedOperationsName);
+      formData.append("location", taskLocation.trim());
+      formData.append("description", taskDescription.trim());
+      if (taskPhoto) {
+        formData.append("photo", taskPhoto, taskPhoto.name);
+      }
+      const response = await fetch("/api/operations/tasks", {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        showModal(
+          "error",
+          "Úlohu sa nepodarilo vytvoriť",
+          data.error || "Skúste to znova."
+        );
+        return;
+      }
+      setTaskLocation("");
+      setTaskDescription("");
+      setTaskPhoto(null);
+      setTaskPhotoName("");
+      await loadIssues();
+      setScreen("operations-dashboard");
+      showModal(
+        "success",
+        "Úloha bola vytvorená",
+        "Nová úloha bola odoslaná vedúcemu údržby.",
+        `Vytvoril: ${loggedOperationsName}`
+      );
+    } catch (error) {
+      console.error(error);
+      showModal(
+        "error",
+        "Nastala chyba",
+        "Nepodarilo sa spojiť so serverom."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const submitRating = async (
+    rating: "up" | "down",
+    actorRole: "maintenance_manager" | "operations_manager",
+    actorName: string
+  ) => {
+    if (!selectedIssue) return;
+    try {
+      setActionLoading(true);
+      const response = await fetch(
+        `/api/issues/${selectedIssue.id}/rating`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            actor_name: actorName,
+            actor_role: actorRole,
+            rating,
+            message: ratingComment.trim(),
+          }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        showModal(
+          "error",
+          "Hodnotenie sa nepodarilo uložiť",
+          data.error || "Skúste to znova."
+        );
+        return;
+      }
+      setRatingChoice(rating);
+      setRatingComment("");
+      await Promise.all([
+        loadIssueEvents(selectedIssue.id),
+        loadIssues(),
+        loadRatings(),
+      ]);
+      showModal(
+        "success",
+        rating === "up" ? "Palec hore uložený" : "Palec dole uložený",
+        "Spätná väzba k oprave bola uložená.",
+        `Hodnotil: ${actorName}`
+      );
+    } catch (error) {
+      console.error(error);
+      showModal(
+        "error",
+        "Nastala chyba",
+        "Hodnotenie sa nepodarilo odoslať."
+      );
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  /* =========================================================
      DÁTUM
      ========================================================= */
 
@@ -1036,6 +1364,38 @@ function App() {
         minute: "2-digit",
       }
     );
+  };
+
+  const parseDate = (dateValue: string | null) => {
+    if (!dateValue) return null;
+    let normalized = dateValue;
+    if (!normalized.includes("T")) normalized = normalized.replace(" ", "T");
+    if (!normalized.endsWith("Z") && !normalized.includes("+")) normalized += "Z";
+    const date = new Date(normalized);
+    return Number.isNaN(date.getTime()) ? null : date;
+  };
+
+  const daysSince = (dateValue: string | null) => {
+    const date = parseDate(dateValue);
+    if (!date) return 0;
+    return Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000));
+  };
+
+  const matchesIssueSearch = (issue: Issue, value: string) => {
+    const q = value.trim().toLocaleLowerCase("sk-SK");
+    if (!q) return true;
+    const haystack = [
+      issue.description,
+      issue.location,
+      issue.reporter_name,
+      issue.current_worker_name || "",
+      issue.last_actor_name || "",
+      issue.event_text || "",
+      String(issue.id),
+    ]
+      .join(" ")
+      .toLocaleLowerCase("sk-SK");
+    return haystack.includes(q);
   };
 
   /* =========================================================
@@ -1097,6 +1457,21 @@ function App() {
       case "escalated_to_operations":
         return "Posunuté prevádzkovému manažérovi";
 
+      case "returned_to_manager":
+        return "Vrátené vedúcemu údržby";
+
+      case "operations_resolved":
+        return "Uzavreté prevádzkovým manažérom";
+
+      case "operations_task_created":
+        return "Nová úloha od prevádzkového manažéra";
+
+      case "rating_up":
+        return "Palec hore";
+
+      case "rating_down":
+        return "Palec dole";
+
       default:
         return "Aktualizácia";
     }
@@ -1121,10 +1496,21 @@ function App() {
 
       case "escalated_to_manager":
       case "escalated_to_operations":
+      case "operations_task_created":
         return "➡️";
 
       case "returned_to_maintenance":
+      case "returned_to_manager":
         return "↩️";
+
+      case "operations_resolved":
+        return "✅";
+
+      case "rating_up":
+        return "👍";
+
+      case "rating_down":
+        return "👎";
 
       default:
         return "•";
@@ -1270,8 +1656,8 @@ function App() {
   const managerFilteredIssues =
     issues.filter(
       (issue) =>
-        issue.status ===
-        managerFilter
+        issue.status === managerFilter &&
+        matchesIssueSearch(issue, managerSearch)
     );
 
   const managerMaterialCount =
@@ -1311,6 +1697,111 @@ function App() {
     closed:
       "Uzavreté závady",
   };
+
+  /* =========================================================
+     PREHĽAD PREVÁDZKOVÉHO MANAŽÉRA
+     ========================================================= */
+
+  const openIssues = issues.filter((issue) => issue.status !== "closed");
+  const operationsDecisionIssues = issues.filter(
+    (issue) => issue.status === "operations"
+  );
+
+  const operationsFilteredIssues = issues.filter((issue) => {
+    if (
+      operationsStatusFilter !== "all" &&
+      issue.status !== operationsStatusFilter
+    ) return false;
+    if (!matchesIssueSearch(issue, operationsSearch)) return false;
+    if (operationsAgeFilter > 0 && daysSince(issue.created_at) < operationsAgeFilter) return false;
+    if (operationsStaleFilter > 0 && daysSince(issue.updated_at) < operationsStaleFilter) return false;
+    return true;
+  });
+
+  const averageResolutionDays = (() => {
+    const values = closedIssues
+      .map((issue) => {
+        const start = parseDate(issue.created_at);
+        const end = parseDate(issue.closed_at);
+        if (!start || !end) return null;
+        return Math.max(0, (end.getTime() - start.getTime()) / 86400000);
+      })
+      .filter((value): value is number => value !== null);
+    if (!values.length) return 0;
+    return values.reduce((sum, value) => sum + value, 0) / values.length;
+  })();
+
+  const locationStats = Object.entries(
+    issues.reduce<Record<string, number>>((acc, issue) => {
+      const key = issue.location || "Neurčené";
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {})
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5);
+
+  const currentMonthRatings = ratings.filter((rating) => {
+    const date = parseDate(rating.created_at);
+    if (!date) return false;
+    const now = new Date();
+    return (
+      date.getUTCFullYear() === now.getUTCFullYear() &&
+      date.getUTCMonth() === now.getUTCMonth()
+    );
+  });
+
+  const employeeRatingStats = Object.values(
+    currentMonthRatings.reduce<
+      Record<string, { name: string; up: number; down: number }>
+    >((acc, rating) => {
+      const issue = issues.find((item) => item.id === rating.issue_id);
+      const worker = issue?.current_worker_name;
+      if (!worker) return acc;
+      if (!acc[worker]) acc[worker] = { name: worker, up: 0, down: 0 };
+      if (rating.event_type === "rating_up") acc[worker].up += 1;
+      if (rating.event_type === "rating_down") acc[worker].down += 1;
+      return acc;
+    }, {})
+  ).sort((a, b) => b.up + b.down - (a.up + a.down));
+
+  const operationsBottomNav = (
+    active: "overview" | "decision" | "history" | "statistics"
+  ) => (
+    <div className="operations-bottom-menu">
+      <button
+        className={active === "overview" ? "bottom-menu-active" : ""}
+        onClick={() => setScreen("operations-dashboard")}
+      >
+        <span>▦</span>
+        Prehľad
+      </button>
+      <button
+        className={active === "decision" ? "bottom-menu-active" : ""}
+        onClick={() => setScreen("operations-decision")}
+      >
+        <span>⚠️</span>
+        Na rozhodnutie
+      </button>
+      <button
+        className={active === "history" ? "bottom-menu-active" : ""}
+        onClick={() => setScreen("operations-history")}
+      >
+        <span>📋</span>
+        História
+      </button>
+      <button
+        className={active === "statistics" ? "bottom-menu-active" : ""}
+        onClick={() => {
+          loadRatings();
+          setScreen("operations-statistics");
+        }}
+      >
+        <span>📊</span>
+        Štatistika
+      </button>
+    </div>
+  );
 
   /* =========================================================
      MODAL
@@ -1642,6 +2133,77 @@ function App() {
       </div>
     ) : null;
 
+  const operationsActionWindow = operationsActionMode ? (
+    <div className="action-overlay">
+      <div className="action-dialog manager-action-dialog">
+        <div className="action-handle"></div>
+        <div className="manager-dialog-role">PREVÁDZKOVÝ MANAŽÉR</div>
+        <div className="action-dialog-icon">
+          {operationsActionMode === "close" ? "✅" : "↩️"}
+        </div>
+        <h2>
+          {operationsActionMode === "close"
+            ? "Uzavrieť závadu"
+            : "Vrátiť vedúcemu údržby"}
+        </h2>
+        <p>
+          {operationsActionMode === "close"
+            ? "Uzavrite závadu a napíšte dôvod rozhodnutia."
+            : "Napíšte, čo má vedúci údržby doplniť alebo zabezpečiť."}
+        </p>
+        <label className="action-label">
+          Komentár
+          <textarea
+            value={operationsActionComment}
+            onChange={(e) => setOperationsActionComment(e.target.value)}
+            rows={4}
+            placeholder="Napíšte komentár..."
+          />
+        </label>
+        <label className="action-photo-upload">
+          <span className="action-camera">📷</span>
+          <div>
+            <strong>Priložiť fotografiu</strong>
+            <small>Voliteľné</small>
+          </div>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={(e) => {
+              const file = e.target.files?.[0] || null;
+              setOperationsActionPhoto(file);
+              setOperationsActionPhotoName(file?.name || "");
+            }}
+          />
+        </label>
+        {operationsActionPhotoName && (
+          <div className="action-photo-selected">
+            ✓ {operationsActionPhotoName}
+          </div>
+        )}
+        <button
+          className="action-confirm-button"
+          onClick={submitOperationsAction}
+          disabled={actionLoading}
+        >
+          {actionLoading
+            ? "Ukladám..."
+            : operationsActionMode === "close"
+            ? "✅ Uzavrieť závadu"
+            : "↩️ Vrátiť vedúcemu"}
+        </button>
+        <button
+          className="action-cancel-button"
+          onClick={closeOperationsAction}
+          disabled={actionLoading}
+        >
+          Zrušiť
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   /* =========================================================
      ZDIEĽANÁ HISTÓRIA DETAIL
      ========================================================= */
@@ -1649,10 +2211,12 @@ function App() {
   const renderHistoryDetail = (
     returnScreen:
       | "maintenance-history"
-      | "manager-history",
+      | "manager-history"
+      | "operations-history",
     titleRole:
       | "ÚDRŽBA"
       | "VEDÚCI ÚDRŽBY"
+      | "PREVÁDZKOVÝ MANAŽÉR"
   ) => {
     if (!selectedIssue) return null;
 
@@ -1759,6 +2323,92 @@ function App() {
               </div>
             )}
 
+            {selectedIssue.status === "closed" && (
+              <div className="repair-rating-panel">
+                <div className="issue-actions-title">
+                  HODNOTENIE OPRAVY
+                </div>
+
+                {issueEvents.filter((event) =>
+                  ["rating_up", "rating_down"].includes(event.event_type)
+                ).length > 0 ? (
+                  <div className="rating-given-list">
+                    {issueEvents
+                      .filter((event) =>
+                        ["rating_up", "rating_down"].includes(event.event_type)
+                      )
+                      .map((event) => (
+                        <div className="rating-given-item" key={event.id}>
+                          <span className={event.event_type === "rating_up" ? "rating-thumb-up" : "rating-thumb-down"}>
+                            {event.event_type === "rating_up" ? "👍" : "👎"}
+                          </span>
+                          <div>
+                            <strong>{event.actor_name || "Hodnotiteľ"}</strong>
+                            <small>{formatDate(event.created_at)}</small>
+                            {event.message && <p>{event.message}</p>}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                ) : (
+                  <div className="communication-empty">
+                    Oprava zatiaľ nebola hodnotená.
+                  </div>
+                )}
+
+                {titleRole !== "ÚDRŽBA" && selectedIssue.current_worker_name && (
+                  <div className="rating-entry-box">
+                    <div className="rating-worker-line">
+                      Hodnotený údržbár: <strong>{selectedIssue.current_worker_name}</strong>
+                    </div>
+                    <div className="rating-choice-row">
+                      <button
+                        className={`rating-choice-button rating-up ${ratingChoice === "up" ? "rating-choice-active" : ""}`}
+                        onClick={() => setRatingChoice("up")}
+                      >
+                        👍 Palec hore
+                      </button>
+                      <button
+                        className={`rating-choice-button rating-down ${ratingChoice === "down" ? "rating-choice-active" : ""}`}
+                        onClick={() => setRatingChoice("down")}
+                      >
+                        👎 Palec dole
+                      </button>
+                    </div>
+                    <textarea
+                      className="rating-comment"
+                      value={ratingComment}
+                      onChange={(e) => setRatingComment(e.target.value)}
+                      placeholder="Voliteľný komentár k hodnoteniu..."
+                      rows={3}
+                    />
+                    <button
+                      className="rating-save-button"
+                      disabled={!ratingChoice || actionLoading}
+                      onClick={() => {
+                        if (!ratingChoice) return;
+                        if (titleRole === "VEDÚCI ÚDRŽBY") {
+                          submitRating(
+                            ratingChoice,
+                            "maintenance_manager",
+                            loggedManagerName
+                          );
+                        } else {
+                          submitRating(
+                            ratingChoice,
+                            "operations_manager",
+                            loggedOperationsName
+                          );
+                        }
+                      }}
+                    >
+                      {actionLoading ? "Ukladám..." : "Uložiť hodnotenie"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="timeline-title">
               HISTÓRIA ZÁVADY
             </div>
@@ -1848,6 +2498,618 @@ function App() {
       </>
     );
   };
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - LOGIN
+     ========================================================= */
+
+  if (screen === "operations-login") {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card login-card operations-login-card">
+            <div className="top-bar">
+              <button className="back-button" onClick={() => setScreen("home")}>
+                ← Späť
+              </button>
+              <img src={tatralandiaLogo} alt="Tatralandia" className="small-logo" />
+            </div>
+            <div className="operations-login-icon">📊</div>
+            <div className="section-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <h1>Prihlásenie manažéra</h1>
+            <p className="subtitle">
+              Kompletný prehľad závad, rozhodovanie, história a štatistika.
+            </p>
+            <form className="report-form" onSubmit={loginOperations}>
+              <label>
+                Vaše meno
+                <input
+                  type="text"
+                  placeholder="Napr. Peter Novák..."
+                  value={operationsName}
+                  onChange={(e) => setOperationsName(e.target.value)}
+                />
+              </label>
+              <label>
+                Heslo prevádzky
+                <input
+                  className="password-input"
+                  type="password"
+                  placeholder="Zadajte heslo"
+                  value={operationsPassword}
+                  onChange={(e) => setOperationsPassword(e.target.value)}
+                />
+              </label>
+              <button className="submit-button" type="submit">
+                📊 Prihlásiť sa
+              </button>
+            </form>
+            <div className="test-password">
+              Testovacie heslo: <strong>prevadzka1234</strong>
+            </div>
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - DETAIL ZÁVADY
+     ========================================================= */
+
+  if (screen === "operations-issue" && selectedIssue) {
+    const communicationEvents = issueEvents.filter(
+      (event) =>
+        [
+          "material_requested",
+          "escalated_to_manager",
+          "returned_to_maintenance",
+          "manager_resolved",
+          "escalated_to_operations",
+          "returned_to_manager",
+          "operations_resolved",
+          "operations_task_created",
+          "resolved",
+        ].includes(event.event_type) && Boolean(event.message || event.photo_key)
+    );
+
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card issue-detail-card operations-detail-card">
+            <div className="top-bar">
+              <button
+                className="back-button"
+                onClick={() => setScreen(operationsIssueReturn)}
+              >
+                ← Späť
+              </button>
+              <img src={tatralandiaLogo} alt="Tatralandia" className="small-logo" />
+            </div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="issue-detail-number">
+              ZÁVADA #{String(selectedIssue.id).padStart(4, "0")}
+            </div>
+            <div className={`issue-detail-status status-${selectedIssue.status}`}>
+              {statusLabel(selectedIssue.status)}
+            </div>
+            <h1 className="issue-detail-title">{selectedIssue.description}</h1>
+
+            <div className="operations-age-summary">
+              <div>
+                <small>VEK ZÁVADY</small>
+                <strong>{daysSince(selectedIssue.created_at)} dní</strong>
+              </div>
+              <div>
+                <small>BEZ POHYBU</small>
+                <strong>{daysSince(selectedIssue.updated_at)} dní</strong>
+              </div>
+            </div>
+
+            <div className="issue-detail-box">
+              <div className="detail-row">
+                <span className="detail-icon">📍</span>
+                <div><small>MIESTO</small><strong>{selectedIssue.location}</strong></div>
+              </div>
+              <div className="detail-row">
+                <span className="detail-icon">👤</span>
+                <div><small>NAHLÁSIL</small><strong>{selectedIssue.reporter_name}</strong></div>
+              </div>
+              <div className="detail-row">
+                <span className="detail-icon">🔧</span>
+                <div><small>ZODPOVEDNÝ ÚDRŽBÁR</small><strong>{selectedIssue.current_worker_name || "—"}</strong></div>
+              </div>
+              <div className="detail-row">
+                <span className="detail-icon">🕒</span>
+                <div><small>POSLEDNÁ AKCIA</small><strong>{selectedIssue.last_actor_name || "—"}</strong></div>
+              </div>
+            </div>
+
+            {selectedIssue.photo_key ? (
+              <img
+                src={getPhotoUrl(selectedIssue.photo_key)}
+                alt="Fotografia závady"
+                className="detail-photo"
+              />
+            ) : (
+              <div className="detail-photo-placeholder">
+                <span>📷</span><strong>Bez fotografie</strong>
+              </div>
+            )}
+
+            {renderCommunicationSection(communicationEvents)}
+
+            {selectedIssue.status === "operations" && (
+              <>
+                <div className="manager-task-alert operations-decision-alert">
+                  <span>⚠️</span>
+                  <div>
+                    <small>ČAKÁ NA VAŠE ROZHODNUTIE</small>
+                    <strong>Vedúci údržby posunul túto závadu prevádzkovému manažérovi.</strong>
+                  </div>
+                </div>
+                <div className="issue-actions-title">VAŠE ROZHODNUTIE</div>
+                <div className="issue-action-buttons">
+                  <button
+                    className="issue-action-button manager-return-button"
+                    onClick={() => openOperationsAction("return_manager")}
+                  >
+                    <span>↩️</span>
+                    <div><strong>Vrátiť vedúcemu údržby</strong><small>Na doplnenie alebo ďalšie riešenie</small></div>
+                  </button>
+                  <button
+                    className="issue-action-button action-resolve"
+                    onClick={() => openOperationsAction("close")}
+                  >
+                    <span>✅</span>
+                    <div><strong>Uzavrieť závadu</strong><small>Označiť ako ukončenú</small></div>
+                  </button>
+                </div>
+              </>
+            )}
+
+            {selectedIssue.status === "closed" && (
+              <div className="resolved-info">
+                <span>✓</span>
+                <div>
+                  <small>ZÁVADA UKONČENÁ</small>
+                  <strong>Uzavrel: {selectedIssue.last_actor_name || "Údržba"}</strong>
+                </div>
+              </div>
+            )}
+          </section>
+        </main>
+        {modalWindow}
+        {operationsActionWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - NOVÁ ÚLOHA
+     ========================================================= */
+
+  if (screen === "operations-new-task") {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card report-card operations-task-card">
+            <div className="top-bar">
+              <button className="back-button" onClick={() => setScreen("operations-dashboard")}>
+                ← Prehľad
+              </button>
+              <img src={tatralandiaLogo} alt="Tatralandia" className="small-logo" />
+            </div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <h1>Nová úloha pre vedúceho</h1>
+            <p className="subtitle">
+              Úloha sa odošle vedúcemu údržby. Ten ju môže ďalej vrátiť do údržby.
+            </p>
+            <form className="report-form" onSubmit={submitOperationsTask}>
+              <label>
+                Miesto / lokalita
+                <input
+                  value={taskLocation}
+                  onChange={(e) => setTaskLocation(e.target.value)}
+                  placeholder="Napr. Wellness, bazén, tobogány..."
+                />
+              </label>
+              <label>
+                Zadanie
+                <textarea
+                  value={taskDescription}
+                  onChange={(e) => setTaskDescription(e.target.value)}
+                  rows={5}
+                  placeholder="Popíšte, čo je potrebné zabezpečiť..."
+                />
+              </label>
+              <label className="photo-upload-box">
+                <span className="photo-upload-icon">📷</span>
+                <div>
+                  <strong>Priložiť fotografiu</strong>
+                  <small>Voliteľné</small>
+                </div>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0] || null;
+                    setTaskPhoto(file);
+                    setTaskPhotoName(file?.name || "");
+                  }}
+                />
+              </label>
+              {taskPhotoName && <div className="action-photo-selected">✓ {taskPhotoName}</div>}
+              <button className="submit-button" type="submit" disabled={actionLoading}>
+                {actionLoading ? "Odosielam..." : "➕ Vytvoriť úlohu"}
+              </button>
+            </form>
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - NA ROZHODNUTIE
+     ========================================================= */
+
+  if (screen === "operations-decision") {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card operations-dashboard-card">
+            <div className="dashboard-header">
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
+            </div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="history-header">
+              <div>
+                <div className="section-label">ESKALOVANÉ ZÁVADY</div>
+                <h1>Na rozhodnutie</h1>
+              </div>
+              <div className="history-count operations-count-badge">{operationsDecisionIssues.length}</div>
+            </div>
+            <p className="history-subtitle">
+              Závady, ktoré vám poslal vedúci údržby na rozhodnutie.
+            </p>
+            <div className="issue-list">
+              {operationsDecisionIssues.length === 0 ? (
+                <div className="empty-box">Momentálne na vás nečaká žiadne rozhodnutie.</div>
+              ) : (
+                operationsDecisionIssues.map((issue) => (
+                  <button
+                    key={issue.id}
+                    className="issue-card-new operations-decision-card"
+                    onClick={async () => {
+                      setSelectedIssue(issue);
+                      setIssueEvents([]);
+                      setOperationsIssueReturn("operations-decision");
+                      setScreen("operations-issue");
+                      await loadIssueEvents(issue.id);
+                    }}
+                  >
+                    <div className="issue-main">
+                      <div className="issue-top">
+                        <strong>#{String(issue.id).padStart(4, "0")}</strong>
+                        <span>{daysSince(issue.created_at)} dní</span>
+                      </div>
+                      <h3>{issue.description}</h3>
+                      <p>📍 {issue.location}</p>
+                      <div className="operations-stale-line">
+                        Bez pohybu: <strong>{daysSince(issue.updated_at)} dní</strong>
+                      </div>
+                    </div>
+                    <div className="issue-arrow">›</div>
+                  </button>
+                ))
+              )}
+            </div>
+            {operationsBottomNav("decision")}
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - HISTÓRIA
+     ========================================================= */
+
+  if (screen === "operations-history") {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card operations-dashboard-card">
+            <div className="dashboard-header">
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
+            </div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="history-header">
+              <div><div className="section-label">ARCHÍV</div><h1>História</h1></div>
+              <div className="history-count">{closedCount}</div>
+            </div>
+            <p className="history-subtitle">Kompletný zoznam uzavretých závad.</p>
+            <div className="history-list">
+              {closedIssues.length === 0 ? (
+                <div className="empty-box">Zatiaľ nie sú žiadne uzavreté závady.</div>
+              ) : (
+                closedIssues.map((issue) => (
+                  <button
+                    className="history-card"
+                    key={issue.id}
+                    onClick={async () => {
+                      setSelectedIssue(issue);
+                      setIssueEvents([]);
+                      setRatingChoice(null);
+                      setRatingComment("");
+                      setScreen("operations-history-detail");
+                      await loadIssueEvents(issue.id);
+                    }}
+                  >
+                    <div className="history-card-status">✓</div>
+                    <div className="history-card-main">
+                      <div className="history-card-top">
+                        <strong>#{String(issue.id).padStart(4, "0")}</strong>
+                        <span>{formatDate(issue.closed_at || issue.updated_at)}</span>
+                      </div>
+                      <h3>{issue.description}</h3>
+                      <p>📍 {issue.location}</p>
+                      <small>
+                        👍 {issue.rating_up_count || 0} &nbsp; 👎 {issue.rating_down_count || 0}
+                      </small>
+                    </div>
+                    {issue.photo_key ? (
+                      <img src={getPhotoUrl(issue.photo_key)} className="history-card-photo" alt="Fotografia" />
+                    ) : (
+                      <div className="history-card-no-photo">📷</div>
+                    )}
+                    <div className="issue-arrow">›</div>
+                  </button>
+                ))
+              )}
+            </div>
+            {operationsBottomNav("history")}
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - ŠTATISTIKA
+     ========================================================= */
+
+  if (screen === "operations-statistics") {
+    const maxLocation = Math.max(1, ...locationStats.map(([, count]) => count));
+    const positiveRatings = currentMonthRatings.filter((item) => item.event_type === "rating_up").length;
+    const negativeRatings = currentMonthRatings.filter((item) => item.event_type === "rating_down").length;
+
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card operations-dashboard-card">
+            <div className="dashboard-header">
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
+            </div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="dashboard-title-row">
+              <div><div className="section-label">VÝKON A TRENDY</div><h1>Štatistika</h1></div>
+              <button className="notification-bell" onClick={() => Promise.all([loadIssues(), loadRatings()])}>↻</button>
+            </div>
+
+            <div className="operations-kpi-grid">
+              <div className="operations-kpi-card"><small>VŠETKY ZÁVADY</small><strong>{issues.length}</strong></div>
+              <div className="operations-kpi-card"><small>OTVORENÉ</small><strong>{openIssues.length}</strong></div>
+              <div className="operations-kpi-card"><small>UZAVRETÉ</small><strong>{closedCount}</strong></div>
+              <div className="operations-kpi-card"><small>NA ROZHODNUTIE</small><strong>{operationsCount}</strong></div>
+              <div className="operations-kpi-card"><small>ČAKÁ NA MATERIÁL</small><strong>{materialCount}</strong></div>
+              <div className="operations-kpi-card"><small>PRIEMERNÉ RIEŠENIE</small><strong>{averageResolutionDays.toFixed(1)} d</strong></div>
+            </div>
+
+            <div className="operations-stats-panel">
+              <div className="operations-panel-title">NAJČASTEJŠIE LOKALITY</div>
+              {locationStats.length === 0 ? (
+                <div className="communication-empty">Zatiaľ nie sú dáta.</div>
+              ) : (
+                locationStats.map(([locationName, count]) => (
+                  <div className="location-stat-row" key={locationName}>
+                    <div className="location-stat-label"><span>{locationName}</span><strong>{count}</strong></div>
+                    <div className="location-stat-track"><div style={{ width: `${Math.max(8, (count / maxLocation) * 100)}%` }} /></div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="operations-stats-panel">
+              <div className="operations-panel-title">SPÄTNÁ VÄZBA - TENTO MESIAC</div>
+              <div className="rating-month-summary">
+                <div><span>👍</span><strong>{positiveRatings}</strong><small>Palec hore</small></div>
+                <div><span>👎</span><strong>{negativeRatings}</strong><small>Palec dole</small></div>
+              </div>
+              <p className="stats-note">
+                Podklad pre mesačné vyhodnotenie. Finálne rozhodnutie o odmene zostáva na vedení.
+              </p>
+              {employeeRatingStats.length === 0 ? (
+                <div className="communication-empty">Tento mesiac zatiaľ nie sú hodnotenia údržbárov.</div>
+              ) : (
+                <div className="employee-rating-table">
+                  {employeeRatingStats.map((worker) => {
+                    const total = worker.up + worker.down;
+                    const positive = total ? Math.round((worker.up / total) * 100) : 0;
+                    return (
+                      <div className="employee-rating-row" key={worker.name}>
+                        <div><strong>{worker.name}</strong><small>{total} hodnotení • {positive}% pozitívnych</small></div>
+                        <span className="employee-rating-up">👍 {worker.up}</span>
+                        <span className="employee-rating-down">👎 {worker.down}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {operationsBottomNav("statistics")}
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     PREVÁDZKOVÝ MANAŽÉR - PREHĽAD
+     ========================================================= */
+
+  if (screen === "operations-dashboard") {
+    const statusCards: Array<[OperationsStatusFilter, string, number, string]> = [
+      ["all", "Všetky", issues.length, "▦"],
+      ["new", "Nové", newCount, "⚠️"],
+      ["progress", "Rozpracované", progressCount, "🔧"],
+      ["material", "Materiál", materialCount, "📦"],
+      ["manager", "U vedúceho", managerCount, "🛠️"],
+      ["operations", "Eskalované mne", operationsCount, "📊"],
+      ["closed", "Uzavreté", closedCount, "✅"],
+    ];
+    const ageOptions = [0, 1, 7, 30, 365];
+
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card operations-dashboard-card">
+            <div className="dashboard-header">
+              <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
+              <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
+            </div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="welcome-block operations-welcome">
+              <div><span>PRIHLÁSENÝ MANAŽÉR</span><h2>{loggedOperationsName}</h2></div>
+              <div className="worker-avatar">📊</div>
+            </div>
+            <div className="dashboard-title-row">
+              <div><div className="section-label">CELÁ ÚDRŽBA</div><h1>Prehľad</h1></div>
+              <button className="operations-add-task" onClick={() => setScreen("operations-new-task")}>＋ Úloha</button>
+            </div>
+
+            <div className="operations-status-grid">
+              {statusCards.map(([status, label, count, icon]) => (
+                <button
+                  key={status}
+                  className={`operations-status-card ${operationsStatusFilter === status ? "operations-status-active" : ""}`}
+                  onClick={() => setOperationsStatusFilter(status)}
+                >
+                  <span>{icon}</span><strong>{count}</strong><small>{label}</small>
+                </button>
+              ))}
+            </div>
+
+            <div className="manager-search-wrap operations-search-wrap">
+              <span>🔎</span>
+              <input
+                value={operationsSearch}
+                onChange={(e) => setOperationsSearch(e.target.value)}
+                placeholder="Hľadať podľa popisu, miesta, mena alebo komentára..."
+              />
+              {operationsSearch && <button onClick={() => setOperationsSearch("")}>×</button>}
+            </div>
+
+            <div className="operations-filter-block">
+              <div className="operations-filter-title">VEK ZÁVADY OD NAHLÁSENIA</div>
+              <div className="operations-filter-chips">
+                {ageOptions.map((value) => (
+                  <button
+                    key={`age-${value}`}
+                    className={operationsAgeFilter === value ? "filter-chip-active" : ""}
+                    onClick={() => setOperationsAgeFilter(value)}
+                  >
+                    {value === 0 ? "Všetky" : value === 365 ? "> 1 rok" : `> ${value} dní`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="operations-filter-block operations-stale-block">
+              <div className="operations-filter-title">BEZ POHYBU / POSLEDNEJ AKCIE</div>
+              <div className="operations-filter-chips">
+                {ageOptions.map((value) => (
+                  <button
+                    key={`stale-${value}`}
+                    className={operationsStaleFilter === value ? "filter-chip-active" : ""}
+                    onClick={() => setOperationsStaleFilter(value)}
+                  >
+                    {value === 0 ? "Všetky" : value === 365 ? "> 1 rok" : `> ${value} dní`}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="dashboard-section operations-issue-section">
+              <div className="dashboard-section-heading">
+                <strong>Závady</strong><span>{operationsFilteredIssues.length} položiek</span>
+              </div>
+              <div className="issue-list">
+                {issuesLoading ? (
+                  <div className="loading-box">Načítavam závady...</div>
+                ) : operationsFilteredIssues.length === 0 ? (
+                  <div className="empty-box">Pre zvolené filtre sa nenašli žiadne závady.</div>
+                ) : (
+                  operationsFilteredIssues.map((issue) => (
+                    <button
+                      className="issue-card-new operations-issue-card"
+                      key={issue.id}
+                      onClick={async () => {
+                        setSelectedIssue(issue);
+                        setIssueEvents([]);
+                        setOperationsIssueReturn("operations-dashboard");
+                        setScreen("operations-issue");
+                        await loadIssueEvents(issue.id);
+                      }}
+                    >
+                      <div className="issue-main">
+                        <div className="issue-top">
+                          <strong>#{String(issue.id).padStart(4, "0")}</strong>
+                          <span>{formatDate(issue.created_at)}</span>
+                        </div>
+                        <h3>{issue.description}</h3>
+                        <p>📍 {issue.location}</p>
+                        <div className="operations-issue-meta">
+                          <span className={`mini-status status-${issue.status}`}>{statusLabel(issue.status)}</span>
+                          <span>Vek: <strong>{daysSince(issue.created_at)} d</strong></span>
+                          <span>Bez pohybu: <strong>{daysSince(issue.updated_at)} d</strong></span>
+                        </div>
+                      </div>
+                      {issue.photo_key ? (
+                        <img src={getPhotoUrl(issue.photo_key)} alt="Fotografia" className="issue-photo" />
+                      ) : (
+                        <div className="issue-no-photo">📷</div>
+                      )}
+                      <div className="issue-arrow">›</div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+            {operationsBottomNav("overview")}
+          </section>
+        </main>
+        {modalWindow}
+      </>
+    );
+  }
+
+  if (screen === "operations-history-detail") {
+    return renderHistoryDetail(
+      "operations-history",
+      "PREVÁDZKOVÝ MANAŽÉR"
+    );
+  }
 
   /* =========================================================
      MANAGER HISTORY DETAIL
@@ -1952,6 +3214,8 @@ function App() {
                         );
 
                         setIssueEvents([]);
+                        setRatingChoice(null);
+                        setRatingComment("");
 
                         setScreen(
                           "manager-history-detail"
@@ -2084,6 +3348,9 @@ function App() {
             "returned_to_maintenance",
             "manager_resolved",
             "escalated_to_operations",
+            "returned_to_manager",
+            "operations_resolved",
+            "operations_task_created",
             "resolved",
           ].includes(event.event_type) &&
           Boolean(
@@ -2569,6 +3836,18 @@ function App() {
 
             </div>
 
+            <div className="manager-search-wrap">
+              <span>🔎</span>
+              <input
+                value={managerSearch}
+                onChange={(e) => setManagerSearch(e.target.value)}
+                placeholder="Hľadať v závadách podľa kľúčového slova..."
+              />
+              {managerSearch && (
+                <button onClick={() => setManagerSearch("")}>×</button>
+              )}
+            </div>
+
             <div className="dashboard-section">
 
               <div className="dashboard-section-heading">
@@ -3043,6 +4322,9 @@ function App() {
             "returned_to_maintenance",
             "manager_resolved",
             "escalated_to_operations",
+            "returned_to_manager",
+            "operations_resolved",
+            "operations_task_created",
             "resolved",
           ].includes(event.event_type) &&
           Boolean(
@@ -3955,11 +5237,7 @@ function App() {
             <button
               className="role-button"
               onClick={() =>
-                showModal(
-                  "info",
-                  "Prevádzkový manažér",
-                  "Túto časť aplikácie vytvoríme v ďalšej fáze."
-                )
+                setScreen("operations-login")
               }
             >
               <div className="role-icon">
