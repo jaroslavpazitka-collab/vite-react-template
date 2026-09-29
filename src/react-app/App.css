@@ -2,14 +2,28 @@
 	box-sizing: border-box;
 }
 
+:root {
+	font-family:
+		Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+		sans-serif;
+	color: #1b1b1b;
+	background: #f3f3f3;
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+}
+
 body {
 	margin: 0;
 	min-width: 320px;
 	min-height: 100vh;
-	font-family:
-		Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	background: #f2f4f5;
-	color: #17212b;
+	background:
+		linear-gradient(
+			180deg,
+			#171717 0px,
+			#171717 245px,
+			#f3f3f3 245px,
+			#f3f3f3 100%
+		);
 }
 
 button,
@@ -25,254 +39,447 @@ button {
 .app-shell {
 	min-height: 100vh;
 	display: flex;
-	align-items: center;
+	align-items: flex-start;
 	justify-content: center;
-	padding: 20px;
+	padding: 32px 20px;
+}
+
+.home-shell {
+	padding-top: 34px;
 }
 
 .app-card {
 	width: 100%;
 	max-width: 520px;
-	background: white;
-	border-radius: 26px;
-	padding: 32px;
-	box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+	background: #ffffff;
+	border-radius: 28px;
+	padding: 30px;
+	box-shadow:
+		0 20px 55px rgba(0, 0, 0, 0.18),
+		0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .home-card {
 	text-align: center;
 }
 
-.brand-block {
-	margin-bottom: 36px;
+.brand-area {
+	margin-bottom: 28px;
 }
 
-.brand-logo {
-	font-size: 34px;
-	font-weight: 900;
+.tatralandia-logo {
+	display: block;
+	max-width: 310px;
+	width: 82%;
+	height: auto;
+	margin: 0 auto;
+	object-fit: contain;
+}
+
+.brand-description {
+	margin-top: 14px;
+	color: #727272;
+	font-size: 12px;
+	font-weight: 800;
 	letter-spacing: 2px;
-	color: #0a72b8;
-}
-
-.brand-subtitle {
-	margin-top: 5px;
-	font-size: 15px;
-	color: #75808b;
 }
 
 .report-button {
 	width: 100%;
-	min-height: 145px;
 	border: none;
-	border-radius: 24px;
-	background: #25a244;
+	border-radius: 20px;
+	padding: 23px 20px;
+	background:
+		linear-gradient(135deg, #ff8a00 0%, #f56a00 100%);
 	color: white;
-	font-size: 25px;
-	font-weight: 800;
-	display: flex;
-	flex-direction: column;
+	display: grid;
+	grid-template-columns: 52px 1fr 30px;
 	align-items: center;
-	justify-content: center;
-	gap: 10px;
-	box-shadow: 0 10px 22px rgba(37, 162, 68, 0.25);
-	transition: 0.15s ease;
+	text-align: left;
+	gap: 12px;
+	box-shadow:
+		0 12px 28px rgba(244, 105, 0, 0.28);
+	transition:
+		transform 0.16s ease,
+		box-shadow 0.16s ease;
 }
 
 .report-button:hover {
 	transform: translateY(-2px);
-	background: #218d3c;
+	box-shadow:
+		0 16px 34px rgba(244, 105, 0, 0.34);
 }
 
-.report-icon {
-	font-size: 40px;
+.report-button:active {
+	transform: translateY(0);
 }
 
-.login-title {
-	margin: 34px 0 14px;
-	font-size: 14px;
-	font-weight: 700;
-	text-transform: uppercase;
-	letter-spacing: 1px;
-	color: #8a949c;
-}
-
-.role-buttons {
-	display: grid;
-	grid-template-columns: 1fr;
-	gap: 10px;
-}
-
-.role-button {
-	border: 1px solid #dde2e6;
-	background: #f8f9fa;
-	border-radius: 15px;
-	padding: 17px 15px;
-	font-weight: 700;
-	color: #26333d;
+.report-button-icon {
+	width: 48px;
+	height: 48px;
+	border-radius: 14px;
+	background: rgba(0, 0, 0, 0.18);
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	gap: 9px;
+	font-size: 25px;
+}
+
+.report-button-content {
+	display: flex;
+	flex-direction: column;
+}
+
+.report-button-content strong {
+	font-size: 22px;
+	font-weight: 900;
+}
+
+.report-button-content span {
+	margin-top: 3px;
+	font-size: 13px;
+	opacity: 0.9;
+}
+
+.arrow {
+	font-size: 36px;
+	font-weight: 300;
+	text-align: right;
+}
+
+.employee-login-title {
+	margin: 32px 0 13px;
+	text-align: left;
+	font-size: 11px;
+	font-weight: 900;
+	letter-spacing: 1.5px;
+	color: #8b8b8b;
+}
+
+.role-buttons {
+	display: flex;
+	flex-direction: column;
+	gap: 11px;
+}
+
+.role-button {
+	width: 100%;
+	border: 1px solid #e5e5e5;
+	border-radius: 16px;
+	background: #ffffff;
+	padding: 15px;
+	display: grid;
+	grid-template-columns: 46px 1fr 24px;
+	gap: 13px;
+	align-items: center;
+	text-align: left;
+	transition:
+		background 0.15s ease,
+		border-color 0.15s ease,
+		transform 0.15s ease;
 }
 
 .role-button:hover {
-	background: #eef2f4;
+	background: #fff8f1;
+	border-color: #ffb067;
+	transform: translateY(-1px);
 }
 
-.footer-text {
-	margin: 28px 0 0;
+.role-icon {
+	width: 44px;
+	height: 44px;
+	border-radius: 12px;
+	background: #171717;
+	color: #ffffff;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 21px;
+}
+
+.role-button strong {
+	display: block;
+	color: #202020;
+	font-size: 15px;
+	font-weight: 850;
+}
+
+.role-button span {
+	display: block;
+	color: #858585;
 	font-size: 12px;
-	color: #9aa2a9;
+	margin-top: 3px;
+}
+
+.role-arrow {
+	font-size: 28px;
+	color: #ef7500;
+	text-align: right;
+}
+
+.footer-line {
+	margin-top: 30px;
+	padding-top: 18px;
+	border-top: 1px solid #eeeeee;
+	font-size: 11px;
+	color: #aaaaaa;
+}
+
+.top-bar {
+	display: grid;
+	grid-template-columns: 1fr auto 1fr;
+	align-items: center;
+	margin-bottom: 27px;
 }
 
 .back-button {
+	justify-self: start;
 	border: none;
 	background: transparent;
-	padding: 0;
-	color: #0a72b8;
-	font-weight: 700;
-	margin-bottom: 24px;
+	color: #eb7000;
+	font-weight: 800;
+	padding: 7px 0;
 }
 
-.small-brand {
-	text-align: center;
-	color: #0a72b8;
+.small-logo {
+	width: 150px;
+	height: auto;
+	object-fit: contain;
+}
+
+.section-badge {
+	width: fit-content;
+	margin: 0 auto 12px;
+	background: #171717;
+	color: #ff8500;
+	font-size: 10px;
 	font-weight: 900;
-	letter-spacing: 2px;
-	margin-bottom: 12px;
+	letter-spacing: 1.5px;
+	padding: 7px 12px;
+	border-radius: 999px;
 }
 
 h1 {
-	margin: 0;
-	font-size: 30px;
 	text-align: center;
+	margin: 0;
+	font-size: 29px;
+	font-weight: 900;
+	color: #181818;
 }
 
 .subtitle {
 	text-align: center;
-	color: #6e7880;
-	line-height: 1.5;
-	margin-bottom: 30px;
+	max-width: 390px;
+	margin: 10px auto 29px;
+	color: #777777;
+	font-size: 14px;
+	line-height: 1.55;
 }
 
 .report-form {
 	display: flex;
 	flex-direction: column;
-	gap: 20px;
+	gap: 19px;
 }
 
-.report-form label {
-	font-weight: 700;
-	font-size: 14px;
+.report-form label:not(.photo-upload) {
+	font-size: 13px;
+	font-weight: 800;
+	color: #353535;
 	text-align: left;
 }
 
 .report-form input[type="text"],
 .report-form textarea {
 	width: 100%;
-	margin-top: 8px;
-	padding: 15px 16px;
-	border: 1px solid #d8dee3;
+	margin-top: 7px;
+	padding: 15px 15px;
+	border: 1px solid #dedede;
 	border-radius: 13px;
-	background: #fbfcfc;
+	background: #fafafa;
+	color: #222222;
 	outline: none;
-	resize: vertical;
+	transition:
+		border-color 0.15s ease,
+		box-shadow 0.15s ease,
+		background 0.15s ease;
 }
 
 .report-form input[type="text"]:focus,
 .report-form textarea:focus {
-	border-color: #25a244;
-	box-shadow: 0 0 0 3px rgba(37, 162, 68, 0.1);
+	border-color: #ff8500;
+	background: white;
+	box-shadow: 0 0 0 4px rgba(255, 133, 0, 0.1);
+}
+
+.report-form textarea {
+	resize: vertical;
+	min-height: 125px;
 }
 
 .photo-upload {
 	position: relative;
 	display: flex;
 	align-items: center;
-	justify-content: center;
-	min-height: 90px;
-	border: 2px dashed #cbd3d9;
+	gap: 15px;
+	padding: 18px;
+	border: 2px dashed #cccccc;
 	border-radius: 15px;
-	background: #f8faf9;
-	color: #34424c;
+	background: #fafafa;
 	cursor: pointer;
+	text-align: left;
+	transition:
+		border-color 0.15s ease,
+		background 0.15s ease;
+}
+
+.photo-upload:hover {
+	border-color: #ff8500;
+	background: #fff8f1;
+}
+
+.photo-icon {
+	width: 48px;
+	height: 48px;
+	flex: 0 0 48px;
+	border-radius: 13px;
+	background: #181818;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 23px;
+}
+
+.photo-upload strong {
+	display: block;
+	font-size: 14px;
+	color: #222222;
+}
+
+.photo-upload span {
+	display: block;
+	margin-top: 3px;
+	font-size: 12px;
+	color: #888888;
 }
 
 .photo-upload input {
 	position: absolute;
 	opacity: 0;
+	pointer-events: none;
 	width: 1px;
 	height: 1px;
 }
 
 .photo-selected {
-	padding: 11px 13px;
-	border-radius: 10px;
-	background: #ecf8ef;
-	color: #187132;
-	font-size: 13px;
+	background: #fff4e8;
+	border: 1px solid #ffd09f;
+	color: #a94e00;
+	padding: 12px 14px;
+	border-radius: 11px;
+	font-size: 12px;
+	font-weight: 700;
 }
 
-.submit-button,
-.primary-button {
+.submit-button {
 	width: 100%;
 	border: none;
 	border-radius: 15px;
-	background: #25a244;
+	background:
+		linear-gradient(135deg, #ff8a00 0%, #ef6800 100%);
 	color: white;
 	padding: 17px;
-	font-size: 17px;
-	font-weight: 800;
-}
-
-.submit-button:hover,
-.primary-button:hover {
-	background: #218d3c;
-}
-
-.success-card {
-	text-align: center;
-}
-
-.success-icon {
-	width: 90px;
-	height: 90px;
-	margin: 10px auto 22px;
-	border-radius: 50%;
-	background: #25a244;
-	color: white;
-	font-size: 52px;
+	font-size: 16px;
 	font-weight: 900;
 	display: flex;
 	align-items: center;
 	justify-content: center;
+	gap: 8px;
+	box-shadow: 0 9px 22px rgba(239, 104, 0, 0.23);
+}
+
+.submit-button:hover {
+	filter: brightness(0.97);
+}
+
+.success-card {
+	text-align: center;
+	padding-top: 45px;
+	padding-bottom: 40px;
+}
+
+.success-logo {
+	width: 210px;
+	height: auto;
+	margin-bottom: 30px;
+}
+
+.success-icon {
+	width: 84px;
+	height: 84px;
+	margin: 0 auto 22px;
+	border-radius: 50%;
+	background: #ff7c00;
+	color: white;
+	font-size: 45px;
+	font-weight: 900;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 12px 28px rgba(255, 124, 0, 0.25);
 }
 
 .success-card p {
-	margin: 18px 0 30px;
+	color: #747474;
 	line-height: 1.6;
-	color: #66717a;
+	margin: 15px auto 28px;
+	max-width: 350px;
 }
 
 @media (max-width: 600px) {
+	body {
+		background:
+			linear-gradient(
+				180deg,
+				#171717 0px,
+				#171717 180px,
+				#f3f3f3 180px,
+				#f3f3f3 100%
+			);
+	}
+
 	.app-shell {
-		padding: 0;
-		align-items: stretch;
+		padding: 17px 12px 28px;
 	}
 
 	.app-card {
-		max-width: none;
-		min-height: 100vh;
-		border-radius: 0;
-		box-shadow: none;
-		padding: 28px 20px;
+		border-radius: 23px;
+		padding: 23px 18px;
 	}
 
-	.brand-block {
-		margin-top: 35px;
+	.home-shell {
+		padding-top: 18px;
+	}
+
+	.tatralandia-logo {
+		width: 88%;
+		max-width: 290px;
 	}
 
 	.report-button {
-		min-height: 155px;
+		padding: 20px 16px;
+		grid-template-columns: 48px 1fr 25px;
+	}
+
+	.report-button-content strong {
+		font-size: 20px;
+	}
+
+	.small-logo {
+		width: 115px;
+	}
+
+	h1 {
+		font-size: 26px;
 	}
 }
