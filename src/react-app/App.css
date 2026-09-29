@@ -2466,3 +2466,112 @@ h1 {
     padding: 11px;
   }
 }
+/* =========================================
+   KOMUNIKÁCIA K ZÁVADE
+   ========================================= */
+
+.issue-communication-section {
+  margin-top: 22px;
+}
+
+.communication-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.communication-empty {
+  padding: 14px;
+  border: 1px dashed #d9d9d9;
+  border-radius: 14px;
+  background: #fafafa;
+  color: #999;
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.communication-card {
+  padding: 13px;
+  border: 1px solid #e6e6e6;
+  border-radius: 15px;
+  background: #fafafa;
+}
+
+.communication-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.communication-card-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.communication-card-icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 10px;
+  background: #171717;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+}
+
+.communication-card-title strong {
+  display: block;
+  color: #222;
+  font-size: 10px;
+  line-height: 1.25;
+}
+
+.communication-card-title small {
+  display: block;
+  margin-top: 3px;
+  color: #ef7200;
+  font-size: 8px;
+  font-weight: 850;
+}
+
+.communication-date {
+  flex: 0 0 auto;
+  color: #aaa;
+  font-size: 7px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.communication-message {
+  margin: 10px 0 0;
+  padding: 10px 11px;
+  border-radius: 11px;
+  background: #fff;
+  color: #555;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.communication-photo {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  margin-top: 10px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+@media (max-width: 370px) {
+  .communication-card {
+    padding: 11px;
+  }
+
+  .communication-date {
+    max-width: 74px;
+  }
+}
