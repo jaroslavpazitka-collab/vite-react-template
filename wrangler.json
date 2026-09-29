@@ -18,5 +18,11 @@
       "database_name": "tatralandia-udrzba-db",
       "database_id": "e9a8428b-83af-4cae-b60e-561641a00db7"
     }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "PHOTOS",
+      "bucket_name": "tatralandia-udrzba-foto"
+    }
   ]
 }
