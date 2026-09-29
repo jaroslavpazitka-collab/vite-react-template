@@ -1145,3 +1145,13 @@ h1 {
     font-size: 11px;
   }
 }
+.loading-box,
+.empty-box {
+  padding: 22px 16px;
+  border: 1px dashed #d8d8d8;
+  border-radius: 14px;
+  background: #fafafa;
+  color: #8c8c8c;
+  text-align: center;
+  font-size: 12px;
+}
