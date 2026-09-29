@@ -27,7 +27,9 @@ async function savePhoto(
   }
 
   if (photo.size > 10 * 1024 * 1024) {
-    throw new Error("Fotografia je príliš veľká. Maximum je 10 MB.");
+    throw new Error(
+      "Fotografia je príliš veľká. Maximum je 10 MB."
+    );
   }
 
   let extension =
@@ -118,7 +120,8 @@ app.post("/api/issues", async (c) => {
       return c.json(
         {
           success: false,
-          error: "Chýba meno, miesto alebo popis závady.",
+          error:
+            "Chýba meno, miesto alebo popis závady.",
         },
         400
       );
@@ -248,7 +251,8 @@ app.get("/api/issues", async (c) => {
     return c.json(
       {
         success: false,
-        error: "Nepodarilo sa načítať závady.",
+        error:
+          "Nepodarilo sa načítať závady.",
       },
       500
     );
@@ -256,12 +260,22 @@ app.get("/api/issues", async (c) => {
 });
 
 /* =========================================================
-   PREVZATIE ZÁVADY
+   PREVZATIE ZÁVADY ÚDRŽBÁROM
    ========================================================= */
 
 app.post("/api/issues/:id/take", async (c) => {
   try {
     const id = Number(c.req.param("id"));
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Neplatné číslo závady.",
+        },
+        400
+      );
+    }
 
     const body = await c.req.json();
 
@@ -345,7 +359,8 @@ app.post("/api/issues/:id/take", async (c) => {
     return c.json(
       {
         success: false,
-        error: "Nepodarilo sa prevziať závadu.",
+        error:
+          "Nepodarilo sa prevziať závadu.",
       },
       500
     );
@@ -353,7 +368,8 @@ app.post("/api/issues/:id/take", async (c) => {
 });
 
 /* =========================================================
-   AKCIA NA ROZPRACOVANEJ ZÁVADE
+   AKCIA ÚDRŽBÁRA
+   closed / material / manager
    ========================================================= */
 
 app.post("/api/issues/:id/status", async (c) => {
@@ -478,7 +494,11 @@ app.post("/api/issues/:id/status", async (c) => {
         AND status = 'progress'
       `
     )
-      .bind(newStatus, workerName, id)
+      .bind(
+        newStatus,
+        workerName,
+        id
+      )
       .run();
 
     if (!updateResult.meta.changes) {
@@ -499,11 +519,13 @@ app.post("/api/issues/:id/status", async (c) => {
     }
 
     if (newStatus === "material") {
-      eventType = "material_requested";
+      eventType =
+        "material_requested";
     }
 
     if (newStatus === "manager") {
-      eventType = "escalated_to_manager";
+      eventType =
+        "escalated_to_manager";
     }
 
     await c.env.DB.prepare(
@@ -529,20 +551,22 @@ app.post("/api/issues/:id/status", async (c) => {
       )
       .run();
 
-    const updatedIssue = await c.env.DB.prepare(
-      `
-      SELECT *
-      FROM issues
-      WHERE id = ?
-      `
-    )
-      .bind(id)
-      .first();
+    const updatedIssue =
+      await c.env.DB.prepare(
+        `
+        SELECT *
+        FROM issues
+        WHERE id = ?
+        `
+      )
+        .bind(id)
+        .first();
 
     return c.json({
       success: true,
       issue: updatedIssue,
-      action_photo_key: actionPhotoKey,
+      action_photo_key:
+        actionPhotoKey,
     });
   } catch (error) {
     console.error(error);
@@ -550,7 +574,8 @@ app.post("/api/issues/:id/status", async (c) => {
     return c.json(
       {
         success: false,
-        error: "Akciu sa nepodarilo uložiť.",
+        error:
+          "Akciu sa nepodarilo uložiť.",
       },
       500
     );
@@ -558,47 +583,360 @@ app.post("/api/issues/:id/status", async (c) => {
 });
 
 /* =========================================================
+   AKCIA VEDÚCEHO ÚDRŽBY
+   return / close / operations
+   ========================================================= */
+
+app.post(
+  "/api/issues/:id/manager-action",
+  async (c) => {
+    try {
+      const id = Number(
+        c.req.param("id")
+      );
+
+      if (
+        !Number.isInteger(id) ||
+        id <= 0
+      ) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Neplatné číslo závady.",
+          },
+          400
+        );
+      }
+
+      const formData =
+        await c.req.formData();
+
+      const managerName = String(
+        formData.get("manager_name") || ""
+      ).trim();
+
+      const action = String(
+        formData.get("action") || ""
+      ).trim();
+
+      const message = String(
+        formData.get("message") || ""
+      ).trim();
+
+      if (!managerName) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Chýba meno vedúceho údržby.",
+          },
+          400
+        );
+      }
+
+      if (
+        ![
+          "return",
+          "close",
+          "operations",
+        ].includes(action)
+      ) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Neplatná akcia vedúceho.",
+          },
+          400
+        );
+      }
+
+      if (!message) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Napíšte krátky komentár k akcii.",
+          },
+          400
+        );
+      }
+
+      const currentIssue =
+        await c.env.DB.prepare(
+          `
+          SELECT *
+          FROM issues
+          WHERE id = ?
+          `
+        )
+          .bind(id)
+          .first<any>();
+
+      if (!currentIssue) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Závada nebola nájdená.",
+          },
+          404
+        );
+      }
+
+      if (
+        !["manager", "material"].includes(
+          String(
+            currentIssue.status
+          )
+        )
+      ) {
+        return c.json(
+          {
+            success: false,
+            error:
+              "Táto závada už nie je u vedúceho údržby.",
+          },
+          409
+        );
+      }
+
+      let photoKey: string | null =
+        null;
+
+      const photo =
+        formData.get("photo");
+
+      if (
+        photo instanceof File &&
+        photo.size > 0
+      ) {
+        let folder =
+          "issues/manager-actions";
+
+        if (action === "close") {
+          folder =
+            "issues/manager-resolved";
+        }
+
+        if (
+          action === "operations"
+        ) {
+          folder =
+            "issues/operations";
+        }
+
+        try {
+          photoKey =
+            await savePhoto(
+              c.env.PHOTOS,
+              photo,
+              folder
+            );
+        } catch (error) {
+          return c.json(
+            {
+              success: false,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Fotografiu sa nepodarilo uložiť.",
+            },
+            400
+          );
+        }
+      }
+
+      let newStatus = "";
+      let eventType = "";
+      let eventMessage = message;
+
+      if (action === "return") {
+        newStatus = "new";
+        eventType =
+          "returned_to_maintenance";
+      }
+
+      if (action === "close") {
+        newStatus = "closed";
+        eventType =
+          "manager_resolved";
+      }
+
+      if (
+        action === "operations"
+      ) {
+        newStatus =
+          "operations";
+
+        eventType =
+          "escalated_to_operations";
+      }
+
+      if (action === "return") {
+        await c.env.DB.prepare(
+          `
+          UPDATE issues
+          SET
+            status = 'new',
+            current_worker_name = NULL,
+            last_actor_name = ?,
+            updated_at = CURRENT_TIMESTAMP,
+            closed_at = NULL
+          WHERE id = ?
+          `
+        )
+          .bind(
+            managerName,
+            id
+          )
+          .run();
+      }
+
+      if (action === "close") {
+        await c.env.DB.prepare(
+          `
+          UPDATE issues
+          SET
+            status = 'closed',
+            last_actor_name = ?,
+            updated_at = CURRENT_TIMESTAMP,
+            closed_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+          `
+        )
+          .bind(
+            managerName,
+            id
+          )
+          .run();
+      }
+
+      if (
+        action === "operations"
+      ) {
+        await c.env.DB.prepare(
+          `
+          UPDATE issues
+          SET
+            status = 'operations',
+            last_actor_name = ?,
+            updated_at = CURRENT_TIMESTAMP,
+            closed_at = NULL
+          WHERE id = ?
+          `
+        )
+          .bind(
+            managerName,
+            id
+          )
+          .run();
+      }
+
+      await c.env.DB.prepare(
+        `
+        INSERT INTO issue_events (
+          issue_id,
+          event_type,
+          actor_role,
+          actor_name,
+          message,
+          photo_key,
+          created_at
+        )
+        VALUES (?, ?, 'maintenance_manager', ?, ?, ?, CURRENT_TIMESTAMP)
+        `
+      )
+        .bind(
+          id,
+          eventType,
+          managerName,
+          eventMessage,
+          photoKey
+        )
+        .run();
+
+      const updatedIssue =
+        await c.env.DB.prepare(
+          `
+          SELECT *
+          FROM issues
+          WHERE id = ?
+          `
+        )
+          .bind(id)
+          .first();
+
+      return c.json({
+        success: true,
+        issue: updatedIssue,
+        photo_key: photoKey,
+      });
+    } catch (error) {
+      console.error(error);
+
+      return c.json(
+        {
+          success: false,
+          error:
+            "Akciu vedúceho sa nepodarilo uložiť.",
+        },
+        500
+      );
+    }
+  }
+);
+
+/* =========================================================
    HISTÓRIA ZÁVADY
    ========================================================= */
 
-app.get("/api/issues/:id/events", async (c) => {
-  try {
-    const id = Number(c.req.param("id"));
+app.get(
+  "/api/issues/:id/events",
+  async (c) => {
+    try {
+      const id = Number(
+        c.req.param("id")
+      );
 
-    const result = await c.env.DB.prepare(
-      `
-      SELECT
-        id,
-        issue_id,
-        event_type,
-        actor_role,
-        actor_name,
-        message,
-        photo_key,
-        created_at
-      FROM issue_events
-      WHERE issue_id = ?
-      ORDER BY id DESC
-      `
-    )
-      .bind(id)
-      .all();
+      const result =
+        await c.env.DB.prepare(
+          `
+          SELECT
+            id,
+            issue_id,
+            event_type,
+            actor_role,
+            actor_name,
+            message,
+            photo_key,
+            created_at
+          FROM issue_events
+          WHERE issue_id = ?
+          ORDER BY id DESC
+          `
+        )
+          .bind(id)
+          .all();
 
-    return c.json({
-      success: true,
-      events: result.results,
-    });
-  } catch (error) {
-    console.error(error);
+      return c.json({
+        success: true,
+        events: result.results,
+      });
+    } catch (error) {
+      console.error(error);
 
-    return c.json(
-      {
-        success: false,
-        error: "Nepodarilo sa načítať históriu.",
-      },
-      500
-    );
+      return c.json(
+        {
+          success: false,
+          error:
+            "Nepodarilo sa načítať históriu.",
+        },
+        500
+      );
+    }
   }
-});
+);
 
 export default app;
