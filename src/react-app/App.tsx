@@ -30,61 +30,97 @@ type Issue = {
   closed_at: string | null;
 };
 
+type ModalType = "success" | "error" | "info";
+
+type ModalState = {
+  visible: boolean;
+  type: ModalType;
+  title: string;
+  message: string;
+  detail?: string;
+};
+
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
 
-  /* ========================================================
-     NAHLÁSENIE
-     ======================================================== */
+  // ============================
+  // MODAL
+  // ============================
+
+  const [modal, setModal] = useState<ModalState>({
+    visible: false,
+    type: "info",
+    title: "",
+    message: "",
+    detail: "",
+  });
+
+  const showModal = (
+    type: ModalType,
+    title: string,
+    message: string,
+    detail?: string
+  ) => {
+    setModal({
+      visible: true,
+      type,
+      title,
+      message,
+      detail,
+    });
+  };
+
+  const closeModal = () => {
+    setModal((prev) => ({
+      ...prev,
+      visible: false,
+    }));
+  };
+
+  // ============================
+  // NAHLÁSENIE
+  // ============================
 
   const [reporter, setReporter] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [photoName, setPhotoName] = useState("");
 
-  /* ========================================================
-     ÚDRŽBÁR
-     ======================================================== */
+  // ============================
+  // ÚDRŽBÁR
+  // ============================
 
   const [maintenanceName, setMaintenanceName] = useState("");
-  const [maintenancePassword, setMaintenancePassword] =
-    useState("");
-
-  const [
-    loggedMaintenanceName,
-    setLoggedMaintenanceName,
-  ] = useState("");
+  const [maintenancePassword, setMaintenancePassword] = useState("");
+  const [loggedMaintenanceName, setLoggedMaintenanceName] = useState("");
 
   const [maintenanceFilter, setMaintenanceFilter] =
     useState<MaintenanceFilter>("new");
 
   const [issues, setIssues] = useState<Issue[]>([]);
-
-  const [issuesLoading, setIssuesLoading] =
-    useState(false);
+  const [issuesLoading, setIssuesLoading] = useState(false);
 
   const [selectedIssue, setSelectedIssue] =
     useState<Issue | null>(null);
 
-  const [actionLoading, setActionLoading] =
-    useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
-  /* ========================================================
-     NAČÍTANIE ZÁVAD
-     ======================================================== */
+  // ============================
+  // NAČÍTANIE ZÁVAD
+  // ============================
 
   const loadIssues = async () => {
     try {
       setIssuesLoading(true);
 
       const response = await fetch("/api/issues");
-
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        alert(
-          data.error ||
-            "Nepodarilo sa načítať závady."
+        showModal(
+          "error",
+          "Nepodarilo sa načítať závady",
+          data.error || "Skúste aplikáciu načítať znova."
         );
         return;
       }
@@ -93,19 +129,21 @@ function App() {
     } catch (error) {
       console.error(error);
 
-      alert("Nepodarilo sa načítať závady.");
+      showModal(
+        "error",
+        "Chyba spojenia",
+        "Nepodarilo sa spojiť so serverom."
+      );
     } finally {
       setIssuesLoading(false);
     }
   };
 
-  /* ========================================================
-     NOVÁ ZÁVADA
-     ======================================================== */
+  // ============================
+  // NOVÁ ZÁVADA
+  // ============================
 
-  const submitReport = async (
-    e: React.FormEvent
-  ) => {
+  const submitReport = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (
@@ -113,8 +151,10 @@ function App() {
       !location.trim() ||
       !description.trim()
     ) {
-      alert(
-        "Prosím, vyplňte meno, miesto a popis závady."
+      showModal(
+        "error",
+        "Chýbajú údaje",
+        "Vyplňte meno, miesto a popis závady."
       );
       return;
     }
@@ -122,11 +162,9 @@ function App() {
     try {
       const response = await fetch("/api/issues", {
         method: "POST",
-
         headers: {
           "Content-Type": "application/json",
         },
-
         body: JSON.stringify({
           reporter_name: reporter.trim(),
           location: location.trim(),
@@ -137,11 +175,11 @@ function App() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        alert(
-          data.error ||
-            "Závadu sa nepodarilo odoslať."
+        showModal(
+          "error",
+          "Závadu sa nepodarilo odoslať",
+          data.error || "Skúste to prosím znova."
         );
-
         return;
       }
 
@@ -149,7 +187,9 @@ function App() {
     } catch (error) {
       console.error(error);
 
-      alert(
+      showModal(
+        "error",
+        "Chyba spojenia",
         "Nepodarilo sa spojiť so serverom."
       );
     }
@@ -163,38 +203,37 @@ function App() {
     setScreen("home");
   };
 
-  /* ========================================================
-     PRIHLÁSENIE ÚDRŽBY
-     ======================================================== */
+  // ============================
+  // LOGIN ÚDRŽBY
+  // ============================
 
-  const loginMaintenance = async (
-    e: React.FormEvent
-  ) => {
+  const loginMaintenance = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!maintenanceName.trim()) {
-      alert("Napíšte svoje meno.");
+      showModal(
+        "error",
+        "Chýba meno",
+        "Pred prihlásením napíšte svoje meno."
+      );
       return;
     }
 
-    /*
-      ZATIAĽ TESTOVACIE HESLO.
-      Neskôr ho presunieme bezpečne na server.
-    */
-
+    // Dočasné testovacie heslo
     if (maintenancePassword !== "test1234") {
-      alert("Nesprávne heslo.");
+      showModal(
+        "error",
+        "Nesprávne heslo",
+        "Zadané heslo údržby nie je správne."
+      );
       return;
     }
 
-    setLoggedMaintenanceName(
-      maintenanceName.trim()
-    );
+    setLoggedMaintenanceName(maintenanceName.trim());
 
     await loadIssues();
 
     setMaintenanceFilter("new");
-
     setScreen("maintenance-dashboard");
   };
 
@@ -202,30 +241,34 @@ function App() {
     setMaintenancePassword("");
     setMaintenanceName("");
     setLoggedMaintenanceName("");
-
     setIssues([]);
     setSelectedIssue(null);
-
     setMaintenanceFilter("new");
-
     setScreen("home");
   };
 
-  /* ========================================================
-     DETAIL ZÁVADY
-     ======================================================== */
+  // ============================
+  // DETAIL
+  // ============================
 
   const openIssue = (issue: Issue) => {
     setSelectedIssue(issue);
-
     setScreen("maintenance-issue");
   };
+
+  // ============================
+  // PREVZATIE
+  // ============================
 
   const takeIssue = async () => {
     if (!selectedIssue) return;
 
     if (!loggedMaintenanceName.trim()) {
-      alert("Nie je známe meno údržbára.");
+      showModal(
+        "error",
+        "Chýba meno údržbára",
+        "Nie je možné identifikovať pracovníka."
+      );
       return;
     }
 
@@ -236,14 +279,11 @@ function App() {
         `/api/issues/${selectedIssue.id}/take`,
         {
           method: "POST",
-
           headers: {
             "Content-Type": "application/json",
           },
-
           body: JSON.stringify({
-            worker_name:
-              loggedMaintenanceName.trim(),
+            worker_name: loggedMaintenanceName.trim(),
           }),
         }
       );
@@ -251,46 +291,47 @@ function App() {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        alert(
-          data.error ||
-            "Závadu sa nepodarilo prevziať."
+        showModal(
+          "error",
+          "Závadu sa nepodarilo prevziať",
+          data.error || "Skúste obnoviť zoznam závad."
         );
 
         await loadIssues();
-
         return;
       }
 
       setSelectedIssue(data.issue);
-
       await loadIssues();
 
-      alert(
-        `Závadu #${String(
-          selectedIssue.id
-        ).padStart(
+      showModal(
+        "success",
+        "Závada bola prevzatá",
+        `Závada #${String(selectedIssue.id).padStart(
           4,
           "0"
-        )} ste úspešne prevzali.`
+        )} je teraz v riešení.`,
+        `Prevzal: ${loggedMaintenanceName}`
       );
     } catch (error) {
       console.error(error);
 
-      alert(
-        "Pri preberaní závady nastala chyba."
+      showModal(
+        "error",
+        "Nastala chyba",
+        "Pri preberaní závady sa nepodarilo spojiť so serverom."
       );
     } finally {
       setActionLoading(false);
     }
   };
 
-  /* ========================================================
-     FILTRE
-     ======================================================== */
+  // ============================
+  // FILTRE
+  // ============================
 
   const filteredIssues = issues.filter(
-    (issue) =>
-      issue.status === maintenanceFilter
+    (issue) => issue.status === maintenanceFilter
   );
 
   const newCount = issues.filter(
@@ -309,19 +350,16 @@ function App() {
     (issue) => issue.status === "manager"
   ).length;
 
-  const filterTitle: Record<
-    MaintenanceFilter,
-    string
-  > = {
+  const filterTitle: Record<MaintenanceFilter, string> = {
     new: "Nové závady",
     progress: "Rozpracované",
     material: "Čaká na materiál",
     manager: "Posunuté vedúcemu",
   };
 
-  /* ========================================================
-     DÁTUM
-     ======================================================== */
+  // ============================
+  // DÁTUM
+  // ============================
 
   const formatDate = (dateValue: string) => {
     if (!dateValue) return "";
@@ -354,863 +392,657 @@ function App() {
     });
   };
 
-  /* ========================================================
-     TEXT STAVU
-     ======================================================== */
-
   const statusLabel = (status: string) => {
     switch (status) {
       case "new":
         return "Nová závada";
-
       case "progress":
         return "Rozpracovaná";
-
       case "material":
         return "Čaká na materiál";
-
       case "manager":
         return "U vedúceho";
-
       case "closed":
         return "Vyriešená";
-
       default:
         return status;
     }
   };
 
-  /* ========================================================
-     DETAIL ZÁVADY
-     ======================================================== */
+  // ============================
+  // MODAL COMPONENT
+  // ============================
 
-  if (
-    screen === "maintenance-issue" &&
-    selectedIssue
-  ) {
+  const modalWindow = modal.visible ? (
+    <div className="custom-modal-overlay" onClick={closeModal}>
+      <div
+        className="custom-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className={`custom-modal-icon modal-${modal.type}`}
+        >
+          {modal.type === "success"
+            ? "✓"
+            : modal.type === "error"
+            ? "!"
+            : "i"}
+        </div>
+
+        <div className="custom-modal-brand">
+          TATRALANDIA • ÚDRŽBA
+        </div>
+
+        <h2>{modal.title}</h2>
+
+        <p>{modal.message}</p>
+
+        {modal.detail && (
+          <div className="custom-modal-detail">
+            {modal.detail}
+          </div>
+        )}
+
+        <button
+          className={`custom-modal-button button-${modal.type}`}
+          onClick={closeModal}
+        >
+          Pokračovať
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  // =========================================================
+  // DETAIL ZÁVADY
+  // =========================================================
+
+  if (screen === "maintenance-issue" && selectedIssue) {
     return (
-      <main className="app-shell">
-        <section className="app-card issue-detail-card">
+      <>
+        <main className="app-shell">
+          <section className="app-card issue-detail-card">
+            <div className="top-bar">
+              <button
+                className="back-button"
+                onClick={() =>
+                  setScreen("maintenance-dashboard")
+                }
+              >
+                ← Závady
+              </button>
 
-          <div className="top-bar">
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="small-logo"
+              />
+            </div>
 
-            <button
-              className="back-button"
-              onClick={() =>
-                setScreen(
-                  "maintenance-dashboard"
-                )
-              }
+            <div className="issue-detail-number">
+              ZÁVADA #{String(selectedIssue.id).padStart(4, "0")}
+            </div>
+
+            <div
+              className={`issue-detail-status status-${selectedIssue.status}`}
             >
-              ← Závady
-            </button>
-
-            <img
-              src={tatralandiaLogo}
-              alt="Tatralandia"
-              className="small-logo"
-            />
-
-          </div>
-
-          <div className="issue-detail-number">
-            ZÁVADA #
-            {String(
-              selectedIssue.id
-            ).padStart(4, "0")}
-          </div>
-
-          <div
-            className={`issue-detail-status status-${selectedIssue.status}`}
-          >
-            {statusLabel(
-              selectedIssue.status
-            )}
-          </div>
-
-          <h1 className="issue-detail-title">
-            {selectedIssue.description}
-          </h1>
-
-          <div className="issue-detail-box">
-
-            <div className="detail-row">
-              <span className="detail-icon">
-                📍
-              </span>
-
-              <div>
-                <small>
-                  KDE SA ZÁVADA NACHÁDZA
-                </small>
-
-                <strong>
-                  {selectedIssue.location}
-                </strong>
-              </div>
+              {statusLabel(selectedIssue.status)}
             </div>
 
-            <div className="detail-row">
-              <span className="detail-icon">
-                👤
-              </span>
-
-              <div>
-                <small>NAHLÁSIL</small>
-
-                <strong>
-                  {
-                    selectedIssue.reporter_name
-                  }
-                </strong>
-              </div>
-            </div>
-
-            <div className="detail-row">
-              <span className="detail-icon">
-                🕐
-              </span>
-
-              <div>
-                <small>
-                  NAHLÁSENÉ
-                </small>
-
-                <strong>
-                  {formatDate(
-                    selectedIssue.created_at
-                  )}
-                </strong>
-              </div>
-            </div>
-
-          </div>
-
-          <div className="detail-description">
-            <small>POPIS ZÁVADY</small>
-
-            <p>
+            <h1 className="issue-detail-title">
               {selectedIssue.description}
-            </p>
-          </div>
+            </h1>
 
-          {selectedIssue.photo_key ? (
-            <img
-              src={selectedIssue.photo_key}
-              alt="Fotografia závady"
-              className="detail-photo"
-            />
-          ) : (
-            <div className="detail-photo-placeholder">
-              <span>📷</span>
+            <div className="issue-detail-box">
+              <div className="detail-row">
+                <span className="detail-icon">📍</span>
 
-              <strong>
-                Fotografia nebola priložená
-              </strong>
-
-              <small>
-                Nahrávanie fotografií
-                doplníme cez R2.
-              </small>
-            </div>
-          )}
-
-          {selectedIssue.status ===
-            "new" && (
-            <button
-              className="take-issue-button"
-              onClick={takeIssue}
-              disabled={actionLoading}
-            >
-              {actionLoading
-                ? "Preberám..."
-                : "🔧 Prevziať závadu"}
-            </button>
-          )}
-
-          {selectedIssue.status ===
-            "progress" && (
-            <div className="issue-being-solved">
-
-              <div className="issue-being-solved-icon">
-                🔧
+                <div>
+                  <small>KDE SA ZÁVADA NACHÁDZA</small>
+                  <strong>{selectedIssue.location}</strong>
+                </div>
               </div>
 
-              <div>
+              <div className="detail-row">
+                <span className="detail-icon">👤</span>
+
+                <div>
+                  <small>NAHLÁSIL</small>
+                  <strong>
+                    {selectedIssue.reporter_name}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="detail-row">
+                <span className="detail-icon">🕐</span>
+
+                <div>
+                  <small>NAHLÁSENÉ</small>
+                  <strong>
+                    {formatDate(selectedIssue.created_at)}
+                  </strong>
+                </div>
+              </div>
+            </div>
+
+            <div className="detail-description">
+              <small>POPIS ZÁVADY</small>
+              <p>{selectedIssue.description}</p>
+            </div>
+
+            {selectedIssue.photo_key ? (
+              <img
+                src={selectedIssue.photo_key}
+                alt="Fotografia závady"
+                className="detail-photo"
+              />
+            ) : (
+              <div className="detail-photo-placeholder">
+                <span>📷</span>
+                <strong>Fotografia nebola priložená</strong>
                 <small>
-                  ZÁVADA JE V RIEŠENÍ
+                  Fotografie doplníme cez Cloudflare R2.
                 </small>
-
-                <strong>
-                  Prevzal:{" "}
-                  {selectedIssue.current_worker_name ||
-                    "Údržba"}
-                </strong>
               </div>
+            )}
 
-            </div>
-          )}
+            {selectedIssue.status === "new" && (
+              <button
+                className="take-issue-button"
+                onClick={takeIssue}
+                disabled={actionLoading}
+              >
+                {actionLoading
+                  ? "Preberám..."
+                  : "🔧 Prevziať závadu"}
+              </button>
+            )}
 
-          <button
-            className="detail-back-button"
-            onClick={() => {
-              setMaintenanceFilter(
-                selectedIssue.status ===
-                  "progress"
-                  ? "progress"
-                  : "new"
-              );
+            {selectedIssue.status === "progress" && (
+              <div className="issue-being-solved">
+                <div className="issue-being-solved-icon">
+                  🔧
+                </div>
 
-              setScreen(
-                "maintenance-dashboard"
-              );
-            }}
-          >
-            Späť na prehľad
-          </button>
+                <div>
+                  <small>ZÁVADA JE V RIEŠENÍ</small>
 
-        </section>
-      </main>
+                  <strong>
+                    Prevzal:{" "}
+                    {selectedIssue.current_worker_name ||
+                      "Údržba"}
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            <button
+              className="detail-back-button"
+              onClick={() => {
+                setMaintenanceFilter(
+                  selectedIssue.status === "progress"
+                    ? "progress"
+                    : "new"
+                );
+
+                setScreen("maintenance-dashboard");
+              }}
+            >
+              Späť na prehľad
+            </button>
+          </section>
+        </main>
+
+        {modalWindow}
+      </>
     );
   }
 
-  /* ========================================================
-     DASHBOARD ÚDRŽBY
-     ======================================================== */
+  // =========================================================
+  // DASHBOARD ÚDRŽBY
+  // =========================================================
 
-  if (
-    screen === "maintenance-dashboard"
-  ) {
+  if (screen === "maintenance-dashboard") {
     return (
-      <main className="app-shell">
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card">
+            <div className="dashboard-header">
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="dashboard-logo"
+              />
 
-        <section className="app-card dashboard-card">
-
-          <div className="dashboard-header">
-
-            <img
-              src={tatralandiaLogo}
-              alt="Tatralandia"
-              className="dashboard-logo"
-            />
-
-            <button
-              className="logout-button"
-              onClick={
-                logoutMaintenance
-              }
-            >
-              Odhlásiť
-            </button>
-
-          </div>
-
-          <div className="welcome-block">
-
-            <div>
-              <span>
-                PRIHLÁSENÝ ÚDRŽBÁR
-              </span>
-
-              <h2>
-                {
-                  loggedMaintenanceName
-                }
-              </h2>
+              <button
+                className="logout-button"
+                onClick={logoutMaintenance}
+              >
+                Odhlásiť
+              </button>
             </div>
 
-            <div className="worker-avatar">
-              🔧
-            </div>
-
-          </div>
-
-          <div className="dashboard-title-row">
-
-            <div>
-
-              <div className="section-label">
-                PREHĽAD ÚDRŽBY
+            <div className="welcome-block">
+              <div>
+                <span>PRIHLÁSENÝ ÚDRŽBÁR</span>
+                <h2>{loggedMaintenanceName}</h2>
               </div>
 
-              <h1>Závady</h1>
-
+              <div className="worker-avatar">🔧</div>
             </div>
 
-            <button
-              className="notification-bell"
-              onClick={async () => {
-                setMaintenanceFilter(
-                  "new"
-                );
+            <div className="dashboard-title-row">
+              <div>
+                <div className="section-label">
+                  PREHĽAD ÚDRŽBY
+                </div>
 
-                await loadIssues();
-              }}
-            >
-              🔔
+                <h1>Závady</h1>
+              </div>
 
-              {newCount > 0 && (
-                <span>
+              <button
+                className="notification-bell"
+                onClick={async () => {
+                  setMaintenanceFilter("new");
+                  await loadIssues();
+                }}
+              >
+                🔔
+
+                {newCount > 0 && <span>{newCount}</span>}
+              </button>
+            </div>
+
+            <div className="stats-grid">
+              <button
+                className={`stat-card ${
+                  maintenanceFilter === "new"
+                    ? "stat-active"
+                    : ""
+                }`}
+                onClick={() =>
+                  setMaintenanceFilter("new")
+                }
+              >
+                <span className="stat-number">
                   {newCount}
                 </span>
-              )}
+                <span className="stat-title">
+                  Nové závady
+                </span>
+                <small>Čakajú na prevzatie</small>
+              </button>
 
-            </button>
-
-          </div>
-
-          <div className="stats-grid">
-
-            <button
-              className={`stat-card ${
-                maintenanceFilter ===
-                "new"
-                  ? "stat-active"
-                  : ""
-              }`}
-              onClick={() =>
-                setMaintenanceFilter(
-                  "new"
-                )
-              }
-            >
-              <span className="stat-number">
-                {newCount}
-              </span>
-
-              <span className="stat-title">
-                Nové závady
-              </span>
-
-              <small>
-                Čakajú na prevzatie
-              </small>
-            </button>
-
-            <button
-              className={`stat-card ${
-                maintenanceFilter ===
-                "progress"
-                  ? "stat-active"
-                  : ""
-              }`}
-              onClick={() =>
-                setMaintenanceFilter(
-                  "progress"
-                )
-              }
-            >
-              <span className="stat-number">
-                {progressCount}
-              </span>
-
-              <span className="stat-title">
-                Rozpracované
-              </span>
-
-              <small>
-                Aktuálne riešené
-              </small>
-            </button>
-
-            <button
-              className={`stat-card ${
-                maintenanceFilter ===
-                "material"
-                  ? "stat-active"
-                  : ""
-              }`}
-              onClick={() =>
-                setMaintenanceFilter(
-                  "material"
-                )
-              }
-            >
-              <span className="stat-number">
-                {materialCount}
-              </span>
-
-              <span className="stat-title">
-                Čaká na materiál
-              </span>
-
-              <small>
-                Potrebná súčinnosť
-              </small>
-            </button>
-
-            <button
-              className={`stat-card ${
-                maintenanceFilter ===
-                "manager"
-                  ? "stat-active"
-                  : ""
-              }`}
-              onClick={() =>
-                setMaintenanceFilter(
-                  "manager"
-                )
-              }
-            >
-              <span className="stat-number">
-                {managerCount}
-              </span>
-
-              <span className="stat-title">
-                U vedúceho
-              </span>
-
-              <small>
-                Posunuté ďalej
-              </small>
-            </button>
-
-          </div>
-
-          <div className="dashboard-section">
-
-            <div className="dashboard-section-heading">
-
-              <strong>
-                {
-                  filterTitle[
-                    maintenanceFilter
-                  ]
+              <button
+                className={`stat-card ${
+                  maintenanceFilter === "progress"
+                    ? "stat-active"
+                    : ""
+                }`}
+                onClick={() =>
+                  setMaintenanceFilter("progress")
                 }
-              </strong>
+              >
+                <span className="stat-number">
+                  {progressCount}
+                </span>
+                <span className="stat-title">
+                  Rozpracované
+                </span>
+                <small>Aktuálne riešené</small>
+              </button>
 
-              <span>
-                {
-                  filteredIssues.length
-                }{" "}
-                položiek
-              </span>
+              <button
+                className={`stat-card ${
+                  maintenanceFilter === "material"
+                    ? "stat-active"
+                    : ""
+                }`}
+                onClick={() =>
+                  setMaintenanceFilter("material")
+                }
+              >
+                <span className="stat-number">
+                  {materialCount}
+                </span>
+                <span className="stat-title">
+                  Čaká na materiál
+                </span>
+                <small>Potrebná súčinnosť</small>
+              </button>
 
+              <button
+                className={`stat-card ${
+                  maintenanceFilter === "manager"
+                    ? "stat-active"
+                    : ""
+                }`}
+                onClick={() =>
+                  setMaintenanceFilter("manager")
+                }
+              >
+                <span className="stat-number">
+                  {managerCount}
+                </span>
+                <span className="stat-title">
+                  U vedúceho
+                </span>
+                <small>Posunuté ďalej</small>
+              </button>
             </div>
 
-            <div className="issue-list">
+            <div className="dashboard-section">
+              <div className="dashboard-section-heading">
+                <strong>
+                  {filterTitle[maintenanceFilter]}
+                </strong>
 
-              {issuesLoading ? (
+                <span>
+                  {filteredIssues.length} položiek
+                </span>
+              </div>
 
-                <div className="loading-box">
-                  Načítavam závady...
-                </div>
-
-              ) : filteredIssues.length ===
-                0 ? (
-
-                <div className="empty-box">
-                  V tejto kategórii
-                  momentálne nie sú
-                  žiadne závady.
-                </div>
-
-              ) : (
-
-                filteredIssues.map(
-                  (issue) => (
-
+              <div className="issue-list">
+                {issuesLoading ? (
+                  <div className="loading-box">
+                    Načítavam závady...
+                  </div>
+                ) : filteredIssues.length === 0 ? (
+                  <div className="empty-box">
+                    V tejto kategórii momentálne nie sú
+                    žiadne závady.
+                  </div>
+                ) : (
+                  filteredIssues.map((issue) => (
                     <button
                       className="issue-card-new"
                       key={issue.id}
-                      onClick={() =>
-                        openIssue(issue)
-                      }
+                      onClick={() => openIssue(issue)}
                     >
-
                       <div className="issue-main">
-
                         <div className="issue-top">
-
                           <strong>
-                            #
-                            {String(
-                              issue.id
-                            ).padStart(
-                              4,
-                              "0"
-                            )}
+                            #{String(issue.id).padStart(4, "0")}
                           </strong>
 
                           <span>
-                            {formatDate(
-                              issue.created_at
-                            )}
+                            {formatDate(issue.created_at)}
                           </span>
-
                         </div>
 
-                        <h3>
-                          {
-                            issue.description
-                          }
-                        </h3>
+                        <h3>{issue.description}</h3>
 
-                        <p>
-                          📍{" "}
-                          {issue.location}
-                        </p>
+                        <p>📍 {issue.location}</p>
 
                         <div className="issue-reporter">
                           Nahlásil:{" "}
                           <strong>
-                            {
-                              issue.reporter_name
-                            }
+                            {issue.reporter_name}
                           </strong>
                         </div>
-
                       </div>
 
                       {issue.photo_key ? (
-
                         <img
-                          src={
-                            issue.photo_key
-                          }
+                          src={issue.photo_key}
                           alt="Fotografia závady"
                           className="issue-photo"
                         />
-
                       ) : (
-
                         <div className="issue-no-photo">
-
-                          <span>
-                            📷
-                          </span>
-
-                          <small>
-                            bez fotky
-                          </small>
-
+                          <span>📷</span>
+                          <small>bez fotky</small>
                         </div>
-
                       )}
 
-                      <div className="issue-arrow">
-                        ›
-                      </div>
-
+                      <div className="issue-arrow">›</div>
                     </button>
-
-                  )
-                )
-
-              )}
-
+                  ))
+                )}
+              </div>
             </div>
 
-          </div>
+            <div className="maintenance-bottom-menu">
+              <button className="bottom-menu-active">
+                <span>🔧</span>
+                Závady
+              </button>
 
-          <div className="maintenance-bottom-menu">
+              <button>
+                <span>📋</span>
+                História
+              </button>
+            </div>
+          </section>
+        </main>
 
-            <button className="bottom-menu-active">
-              <span>🔧</span>
-              Závady
-            </button>
-
-            <button>
-              <span>📋</span>
-              História
-            </button>
-
-          </div>
-
-        </section>
-
-      </main>
+        {modalWindow}
+      </>
     );
   }
 
-  /* ========================================================
-     LOGIN ÚDRŽBÁRA
-     ======================================================== */
+  // =========================================================
+  // LOGIN ÚDRŽBY
+  // =========================================================
 
-  if (
-    screen === "maintenance-login"
-  ) {
+  if (screen === "maintenance-login") {
     return (
-      <main className="app-shell">
+      <>
+        <main className="app-shell">
+          <section className="app-card login-card">
+            <div className="top-bar">
+              <button
+                className="back-button"
+                onClick={() => setScreen("home")}
+              >
+                ← Späť
+              </button>
 
-        <section className="app-card login-card">
-
-          <div className="top-bar">
-
-            <button
-              className="back-button"
-              onClick={() =>
-                setScreen("home")
-              }
-            >
-              ← Späť
-            </button>
-
-            <img
-              src={tatralandiaLogo}
-              alt="Tatralandia"
-              className="small-logo"
-            />
-
-          </div>
-
-          <div className="login-icon-big">
-            🔧
-          </div>
-
-          <div className="section-badge">
-            ÚDRŽBA
-          </div>
-
-          <h1>
-            Prihlásenie údržbára
-          </h1>
-
-          <p className="subtitle">
-            Zadajte svoje meno a
-            spoločné heslo údržby.
-          </p>
-
-          <form
-            className="report-form"
-            onSubmit={
-              loginMaintenance
-            }
-          >
-
-            <label>
-              Vaše meno
-
-              <input
-                type="text"
-                placeholder="Napr. Jano, Peter, Fero..."
-                value={
-                  maintenanceName
-                }
-                onChange={(e) =>
-                  setMaintenanceName(
-                    e.target.value
-                  )
-                }
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="small-logo"
               />
+            </div>
 
-            </label>
+            <div className="login-icon-big">🔧</div>
 
-            <label>
-              Heslo údržby
+            <div className="section-badge">ÚDRŽBA</div>
 
-              <input
-                className="password-input"
-                type="password"
-                placeholder="Zadajte heslo"
-                value={
-                  maintenancePassword
-                }
-                onChange={(e) =>
-                  setMaintenancePassword(
-                    e.target.value
-                  )
-                }
-              />
+            <h1>Prihlásenie údržbára</h1>
 
-            </label>
+            <p className="subtitle">
+              Zadajte svoje meno a spoločné heslo údržby.
+            </p>
 
-            <button
-              className="submit-button"
-              type="submit"
+            <form
+              className="report-form"
+              onSubmit={loginMaintenance}
             >
-              🔧 Prihlásiť sa
-            </button>
+              <label>
+                Vaše meno
+                <input
+                  type="text"
+                  placeholder="Napr. Jano, Peter, Fero..."
+                  value={maintenanceName}
+                  onChange={(e) =>
+                    setMaintenanceName(e.target.value)
+                  }
+                />
+              </label>
 
-          </form>
+              <label>
+                Heslo údržby
+                <input
+                  className="password-input"
+                  type="password"
+                  placeholder="Zadajte heslo"
+                  value={maintenancePassword}
+                  onChange={(e) =>
+                    setMaintenancePassword(e.target.value)
+                  }
+                />
+              </label>
 
-          <div className="test-password">
-            Testovacie heslo:{" "}
-            <strong>
-              test1234
-            </strong>
-          </div>
+              <button
+                className="submit-button"
+                type="submit"
+              >
+                🔧 Prihlásiť sa
+              </button>
+            </form>
 
-        </section>
+            <div className="test-password">
+              Testovacie heslo:{" "}
+              <strong>test1234</strong>
+            </div>
+          </section>
+        </main>
 
-      </main>
+        {modalWindow}
+      </>
     );
   }
 
-  /* ========================================================
-     FORMULÁR ZÁVADY
-     ======================================================== */
+  // =========================================================
+  // FORMULÁR
+  // =========================================================
 
   if (screen === "report") {
     return (
-      <main className="app-shell">
+      <>
+        <main className="app-shell">
+          <section className="app-card">
+            <div className="top-bar">
+              <button
+                className="back-button"
+                onClick={() => setScreen("home")}
+              >
+                ← Späť
+              </button>
 
-        <section className="app-card">
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="small-logo"
+              />
+            </div>
 
-          <div className="top-bar">
+            <div className="section-badge">
+              HLÁSENIE ZÁVADY
+            </div>
 
-            <button
-              className="back-button"
-              onClick={() =>
-                setScreen("home")
-              }
+            <h1>Nahlásiť závadu</h1>
+
+            <p className="subtitle">
+              Vyplňte základné informácie. Hlásenie bude
+              odoslané priamo údržbe.
+            </p>
+
+            <form
+              className="report-form"
+              onSubmit={submitReport}
             >
-              ← Späť
-            </button>
+              <label>
+                Kto nahlasuje?
+                <input
+                  type="text"
+                  placeholder="Napíšte svoje meno"
+                  value={reporter}
+                  onChange={(e) =>
+                    setReporter(e.target.value)
+                  }
+                />
+              </label>
 
-            <img
-              src={tatralandiaLogo}
-              alt="Tatralandia"
-              className="small-logo"
-            />
+              <label>
+                Kde sa závada nachádza?
+                <input
+                  type="text"
+                  placeholder="Napr. Hala Tropic – sprchy"
+                  value={location}
+                  onChange={(e) =>
+                    setLocation(e.target.value)
+                  }
+                />
+              </label>
 
-          </div>
+              <label>
+                Popis závady
+                <textarea
+                  placeholder="Popíšte, čo nefunguje alebo čo je poškodené..."
+                  value={description}
+                  onChange={(e) =>
+                    setDescription(e.target.value)
+                  }
+                  rows={5}
+                />
+              </label>
 
-          <div className="section-badge">
-            HLÁSENIE ZÁVADY
-          </div>
+              <label className="photo-upload">
+                <div className="photo-icon">📷</div>
 
-          <h1>
-            Nahlásiť závadu
-          </h1>
+                <div>
+                  <strong>Pridať fotografiu</strong>
+                  <span>
+                    Odfotiť závadu alebo vybrať fotografiu
+                  </span>
+                </div>
 
-          <p className="subtitle">
-            Vyplňte základné
-            informácie. Hlásenie bude
-            odoslané priamo údržbe.
-          </p>
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={(e) =>
+                    setPhotoName(
+                      e.target.files?.[0]?.name || ""
+                    )
+                  }
+                />
+              </label>
 
-          <form
-            className="report-form"
-            onSubmit={submitReport}
-          >
+              {photoName && (
+                <div className="photo-selected">
+                  ✓ Fotografia vybraná: {photoName}
+                </div>
+              )}
 
-            <label>
-              Kto nahlasuje?
+              <button
+                className="submit-button"
+                type="submit"
+              >
+                ⚠️ Odoslať závadu
+              </button>
+            </form>
+          </section>
+        </main>
 
-              <input
-                type="text"
-                placeholder="Napíšte svoje meno"
-                value={reporter}
-                onChange={(e) =>
-                  setReporter(
-                    e.target.value
-                  )
-                }
-              />
-
-            </label>
-
-            <label>
-              Kde sa závada nachádza?
-
-              <input
-                type="text"
-                placeholder="Napr. Hala Tropic – sprchy"
-                value={location}
-                onChange={(e) =>
-                  setLocation(
-                    e.target.value
-                  )
-                }
-              />
-
-            </label>
-
-            <label>
-              Popis závady
-
-              <textarea
-                placeholder="Popíšte, čo nefunguje alebo čo je poškodené..."
-                value={description}
-                onChange={(e) =>
-                  setDescription(
-                    e.target.value
-                  )
-                }
-                rows={5}
-              />
-
-            </label>
-
-            <label className="photo-upload">
-
-              <div className="photo-icon">
-                📷
-              </div>
-
-              <div>
-                <strong>
-                  Pridať fotografiu
-                </strong>
-
-                <span>
-                  Odfotiť závadu alebo
-                  vybrať fotografiu
-                </span>
-              </div>
-
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={(e) =>
-                  setPhotoName(
-                    e.target.files?.[0]
-                      ?.name || ""
-                  )
-                }
-              />
-
-            </label>
-
-            {photoName && (
-              <div className="photo-selected">
-                ✓ Fotografia vybraná:{" "}
-                {photoName}
-              </div>
-            )}
-
-            <button
-              className="submit-button"
-              type="submit"
-            >
-              ⚠️ Odoslať závadu
-            </button>
-
-          </form>
-
-        </section>
-
-      </main>
+        {modalWindow}
+      </>
     );
   }
 
-  /* ========================================================
-     POĎAKOVANIE
-     ======================================================== */
+  // =========================================================
+  // POĎAKOVANIE
+  // =========================================================
 
   if (screen === "success") {
     return (
       <main className="app-shell">
-
         <section className="app-card success-card">
-
           <img
             src={tatralandiaLogo}
             alt="Tatralandia"
             className="success-logo"
           />
 
-          <div className="success-icon">
-            ✓
-          </div>
+          <div className="success-icon">✓</div>
 
           <h1>Ďakujeme</h1>
 
           <p>
-            Závada bola úspešne
-            nahlásená a odoslaná
+            Závada bola úspešne nahlásená a odoslaná
             údržbe na riešenie.
           </p>
 
@@ -1220,172 +1052,117 @@ function App() {
           >
             Späť na úvod
           </button>
-
         </section>
-
       </main>
     );
   }
 
-  /* ========================================================
-     DOMOV
-     ======================================================== */
+  // =========================================================
+  // HOME
+  // =========================================================
 
   return (
-    <main className="app-shell home-shell">
+    <>
+      <main className="app-shell home-shell">
+        <section className="app-card home-card">
+          <div className="brand-area">
+            <img
+              src={tatralandiaLogo}
+              alt="Tatralandia"
+              className="tatralandia-logo"
+            />
 
-      <section className="app-card home-card">
-
-        <div className="brand-area">
-
-          <img
-            src={tatralandiaLogo}
-            alt="Tatralandia"
-            className="tatralandia-logo"
-          />
-
-          <div className="brand-description">
-            INTERNÝ SYSTÉM ÚDRŽBY
+            <div className="brand-description">
+              INTERNÝ SYSTÉM ÚDRŽBY
+            </div>
           </div>
-
-        </div>
-
-        <button
-          className="report-button"
-          onClick={() =>
-            setScreen("report")
-          }
-        >
-
-          <div className="report-button-icon">
-            ⚠️
-          </div>
-
-          <div className="report-button-content">
-
-            <strong>
-              Nahlásiť závadu
-            </strong>
-
-            <span>
-              Odoslať nové hlásenie
-              údržbe
-            </span>
-
-          </div>
-
-          <div className="arrow">
-            ›
-          </div>
-
-        </button>
-
-        <div className="employee-login-title">
-          PRÍSTUP PRE PRACOVNÍKOV
-        </div>
-
-        <div className="role-buttons">
 
           <button
-            className="role-button"
-            onClick={() =>
-              setScreen(
-                "maintenance-login"
-              )
-            }
+            className="report-button"
+            onClick={() => setScreen("report")}
           >
+            <div className="report-button-icon">⚠️</div>
 
-            <div className="role-icon">
-              🔧
+            <div className="report-button-content">
+              <strong>Nahlásiť závadu</strong>
+              <span>Odoslať nové hlásenie údržbe</span>
             </div>
 
-            <div>
-              <strong>
-                Údržbár
-              </strong>
-
-              <span>
-                Nové a rozpracované
-                závady
-              </span>
-            </div>
-
-            <div className="role-arrow">
-              ›
-            </div>
-
+            <div className="arrow">›</div>
           </button>
 
-          <button
-            className="role-button"
-            onClick={() =>
-              alert(
-                "Vedúceho údržby vytvoríme následne."
-              )
-            }
-          >
+          <div className="employee-login-title">
+            PRÍSTUP PRE PRACOVNÍKOV
+          </div>
 
-            <div className="role-icon">
-              🛠️
-            </div>
+          <div className="role-buttons">
+            <button
+              className="role-button"
+              onClick={() =>
+                setScreen("maintenance-login")
+              }
+            >
+              <div className="role-icon">🔧</div>
 
-            <div>
-              <strong>
-                Vedúci údržby
-              </strong>
+              <div>
+                <strong>Údržbár</strong>
+                <span>
+                  Nové a rozpracované závady
+                </span>
+              </div>
 
-              <span>
-                Riadenie úloh a
-                štatistika
-              </span>
-            </div>
+              <div className="role-arrow">›</div>
+            </button>
 
-            <div className="role-arrow">
-              ›
-            </div>
+            <button
+              className="role-button"
+              onClick={() =>
+                showModal(
+                  "info",
+                  "Vedúci údržby",
+                  "Túto časť aplikácie vytvoríme v ďalšom kroku."
+                )
+              }
+            >
+              <div className="role-icon">🛠️</div>
 
-          </button>
+              <div>
+                <strong>Vedúci údržby</strong>
+                <span>Riadenie úloh a štatistika</span>
+              </div>
 
-          <button
-            className="role-button"
-            onClick={() =>
-              alert(
-                "Prevádzkového manažéra vytvoríme následne."
-              )
-            }
-          >
+              <div className="role-arrow">›</div>
+            </button>
 
-            <div className="role-icon">
-              📊
-            </div>
+            <button
+              className="role-button"
+              onClick={() =>
+                showModal(
+                  "info",
+                  "Prevádzkový manažér",
+                  "Túto časť aplikácie vytvoríme neskôr."
+                )
+              }
+            >
+              <div className="role-icon">📊</div>
 
-            <div>
-              <strong>
-                Prevádzkový manažér
-              </strong>
+              <div>
+                <strong>Prevádzkový manažér</strong>
+                <span>Kompletný prehľad a riadenie</span>
+              </div>
 
-              <span>
-                Kompletný prehľad a
-                riadenie
-              </span>
-            </div>
+              <div className="role-arrow">›</div>
+            </button>
+          </div>
 
-            <div className="role-arrow">
-              ›
-            </div>
+          <div className="footer-line">
+            Tatralandia • interný systém hlásenia závad
+          </div>
+        </section>
+      </main>
 
-          </button>
-
-        </div>
-
-        <div className="footer-line">
-          Tatralandia • interný systém
-          hlásenia závad
-        </div>
-
-      </section>
-
-    </main>
+      {modalWindow}
+    </>
   );
 }
 
