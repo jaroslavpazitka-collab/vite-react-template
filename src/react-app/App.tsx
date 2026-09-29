@@ -9,56 +9,111 @@ type Screen =
   | "maintenance-login"
   | "maintenance-dashboard";
 
+type MaintenanceFilter = "new" | "progress" | "material" | "manager";
+
+type Issue = {
+  id: number;
+  reporter_name: string;
+  location: string;
+  description: string;
+  photo_key: string | null;
+  status: string;
+  current_worker_name: string | null;
+  last_actor_name: string | null;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+};
+
 function App() {
   const [screen, setScreen] = useState<Screen>("home");
 
-  // Hlásenie závady
+  // ============================
+  // NAHLÁSENIE ZÁVADY
+  // ============================
+
   const [reporter, setReporter] = useState("");
   const [location, setLocation] = useState("");
   const [description, setDescription] = useState("");
   const [photoName, setPhotoName] = useState("");
 
-  // Údržbár
+  // ============================
+  // ÚDRŽBÁR
+  // ============================
+
   const [maintenanceName, setMaintenanceName] = useState("");
   const [maintenancePassword, setMaintenancePassword] = useState("");
   const [loggedMaintenanceName, setLoggedMaintenanceName] = useState("");
-const [maintenanceFilter, setMaintenanceFilter] = useState<
-  "new" | "progress" | "material" | "manager"
->("new");
-const submitReport = async (e: React.FormEvent) => {
-  e.preventDefault();
 
-  if (!reporter.trim() || !location.trim() || !description.trim()) {
-    alert("Prosím, vyplňte meno, miesto a popis závady.");
-    return;
-  }
+  const [maintenanceFilter, setMaintenanceFilter] =
+    useState<MaintenanceFilter>("new");
 
-  try {
-    const response = await fetch("/api/issues", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        reporter_name: reporter.trim(),
-        location: location.trim(),
-        description: description.trim(),
-      }),
-    });
+  const [issues, setIssues] = useState<Issue[]>([]);
+  const [issuesLoading, setIssuesLoading] = useState(false);
 
-    const data = await response.json();
+  // ============================
+  // NAČÍTANIE ZÁVAD Z DATABÁZY
+  // ============================
 
-    if (!response.ok || !data.success) {
-      alert(data.error || "Závadu sa nepodarilo odoslať.");
+  const loadIssues = async () => {
+    try {
+      setIssuesLoading(true);
+
+      const response = await fetch("/api/issues");
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(data.error || "Nepodarilo sa načítať závady.");
+        return;
+      }
+
+      setIssues(data.issues || []);
+    } catch (error) {
+      console.error(error);
+      alert("Nepodarilo sa načítať závady.");
+    } finally {
+      setIssuesLoading(false);
+    }
+  };
+
+  // ============================
+  // ODOSLANIE NOVEJ ZÁVADY
+  // ============================
+
+  const submitReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!reporter.trim() || !location.trim() || !description.trim()) {
+      alert("Prosím, vyplňte meno, miesto a popis závady.");
       return;
     }
 
-    setScreen("success");
-  } catch (error) {
-    console.error(error);
-    alert("Nepodarilo sa spojiť so serverom.");
-  }
-};
+    try {
+      const response = await fetch("/api/issues", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          reporter_name: reporter.trim(),
+          location: location.trim(),
+          description: description.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        alert(data.error || "Závadu sa nepodarilo odoslať.");
+        return;
+      }
+
+      setScreen("success");
+    } catch (error) {
+      console.error(error);
+      alert("Nepodarilo sa spojiť so serverom.");
+    }
+  };
 
   const resetReport = () => {
     setReporter("");
@@ -68,7 +123,11 @@ const submitReport = async (e: React.FormEvent) => {
     setScreen("home");
   };
 
-  const loginMaintenance = (e: React.FormEvent) => {
+  // ============================
+  // PRIHLÁSENIE ÚDRŽBÁRA
+  // ============================
+
+  const loginMaintenance = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!maintenanceName.trim()) {
@@ -76,13 +135,16 @@ const submitReport = async (e: React.FormEvent) => {
       return;
     }
 
-    // IBA DOČASNÉ TESTOVACIE HESLO
+    // ZATIAĽ IBA TESTOVACIE HESLO
     if (maintenancePassword !== "test1234") {
       alert("Nesprávne heslo.");
       return;
     }
 
     setLoggedMaintenanceName(maintenanceName.trim());
+
+    await loadIssues();
+
     setScreen("maintenance-dashboard");
   };
 
@@ -90,114 +152,64 @@ const submitReport = async (e: React.FormEvent) => {
     setMaintenancePassword("");
     setMaintenanceName("");
     setLoggedMaintenanceName("");
+    setIssues([]);
+    setMaintenanceFilter("new");
     setScreen("home");
   };
-const maintenanceIssues = [
-  {
-    id: "0001",
-    status: "new",
-    time: "pred 8 min.",
-    title: "Tečie voda pri sprche",
-    location: "Hala Tropic – pánske sprchy",
-    reporter: "Peter",
-    photo: null,
-  },
-  {
-    id: "0002",
-    status: "new",
-    time: "pred 21 min.",
-    title: "Nesvieti osvetlenie",
-    location: "Chodba pri šatniach",
-    reporter: "Janka",
-    photo: null,
-  },
-  {
-    id: "0003",
-    status: "new",
-    time: "pred 34 min.",
-    title: "Uvoľnené zábradlie",
-    location: "Vonkajší bazén",
-    reporter: "Martin",
-    photo: null,
-  },
-  {
-    id: "0004",
-    status: "progress",
-    time: "dnes 09:02",
-    title: "Pokazený zámok na dverách",
-    location: "Technická chodba",
-    reporter: "Marek",
-    photo: null,
-  },
-  {
-    id: "0005",
-    status: "progress",
-    time: "dnes 08:45",
-    title: "Kvapká ventil",
-    location: "Strojovňa",
-    reporter: "Peter",
-    photo: null,
-  },
-  {
-    id: "0006",
-    status: "progress",
-    time: "dnes 08:15",
-    title: "Poškodená lavička",
-    location: "Šatne",
-    reporter: "Lucia",
-    photo: null,
-  },
-  {
-    id: "0007",
-    status: "progress",
-    time: "včera 18:40",
-    title: "Kontrola čerpadla",
-    location: "Technologická miestnosť",
-    reporter: "Ján",
-    photo: null,
-  },
-  {
-    id: "0008",
-    status: "material",
-    time: "včera 15:20",
-    title: "Výmena poškodeného ventilu",
-    location: "Hala Tropic",
-    reporter: "Milan",
-    photo: null,
-  },
-  {
-    id: "0009",
-    status: "material",
-    time: "včera 14:10",
-    title: "Oprava madla",
-    location: "Schodisko",
-    reporter: "Peter",
-    photo: null,
-  },
-  {
-    id: "0010",
-    status: "manager",
-    time: "včera 11:30",
-    title: "Porucha technologického zariadenia",
-    location: "Strojovňa",
-    reporter: "Jaro",
-    photo: null,
-  },
-];
 
-const filteredIssues = maintenanceIssues.filter(
-  (issue) => issue.status === maintenanceFilter
-);
-
-const filterTitle = {
-  new: "Nové závady",
-  progress: "Rozpracované",
-  material: "Čaká na materiál",
-  manager: "Posunuté vedúcemu",
-}[maintenanceFilter];
   // ============================
+  // FILTROVANIE
+  // ============================
+
+  const filteredIssues = issues.filter(
+    (issue) => issue.status === maintenanceFilter
+  );
+
+  const newCount = issues.filter((issue) => issue.status === "new").length;
+
+  const progressCount = issues.filter(
+    (issue) => issue.status === "progress"
+  ).length;
+
+  const materialCount = issues.filter(
+    (issue) => issue.status === "material"
+  ).length;
+
+  const managerCount = issues.filter(
+    (issue) => issue.status === "manager"
+  ).length;
+
+  const filterTitle: Record<MaintenanceFilter, string> = {
+    new: "Nové závady",
+    progress: "Rozpracované",
+    material: "Čaká na materiál",
+    manager: "Posunuté vedúcemu",
+  };
+
+  // ============================
+  // FORMÁTOVANIE ČASU
+  // ============================
+
+  const formatDate = (dateValue: string) => {
+    if (!dateValue) return "";
+
+    const date = new Date(dateValue + (dateValue.includes("Z") ? "" : "Z"));
+
+    if (Number.isNaN(date.getTime())) {
+      return dateValue;
+    }
+
+    return date.toLocaleString("sk-SK", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  // =========================================================
   // ÚDRŽBÁR - DASHBOARD
-  // ============================
+  // =========================================================
 
   if (screen === "maintenance-dashboard") {
     return (
@@ -230,91 +242,127 @@ const filterTitle = {
               <h1>Závady</h1>
             </div>
 
-            <div className="notification-bell">
+            <button
+              className="notification-bell"
+              onClick={() => {
+                setMaintenanceFilter("new");
+                loadIssues();
+              }}
+            >
               🔔
-              <span>3</span>
+              {newCount > 0 && <span>{newCount}</span>}
+            </button>
+          </div>
+
+          {/* =========================================
+              FILTRE
+             ========================================= */}
+
+          <div className="stats-grid">
+            <button
+              className={`stat-card ${
+                maintenanceFilter === "new" ? "stat-active" : ""
+              }`}
+              onClick={() => setMaintenanceFilter("new")}
+            >
+              <span className="stat-number">{newCount}</span>
+              <span className="stat-title">Nové závady</span>
+              <small>Čakajú na prevzatie</small>
+            </button>
+
+            <button
+              className={`stat-card ${
+                maintenanceFilter === "progress" ? "stat-active" : ""
+              }`}
+              onClick={() => setMaintenanceFilter("progress")}
+            >
+              <span className="stat-number">{progressCount}</span>
+              <span className="stat-title">Rozpracované</span>
+              <small>Aktuálne riešené</small>
+            </button>
+
+            <button
+              className={`stat-card ${
+                maintenanceFilter === "material" ? "stat-active" : ""
+              }`}
+              onClick={() => setMaintenanceFilter("material")}
+            >
+              <span className="stat-number">{materialCount}</span>
+              <span className="stat-title">Čaká na materiál</span>
+              <small>Potrebná súčinnosť</small>
+            </button>
+
+            <button
+              className={`stat-card ${
+                maintenanceFilter === "manager" ? "stat-active" : ""
+              }`}
+              onClick={() => setMaintenanceFilter("manager")}
+            >
+              <span className="stat-number">{managerCount}</span>
+              <span className="stat-title">U vedúceho</span>
+              <small>Posunuté ďalej</small>
+            </button>
+          </div>
+
+          {/* =========================================
+              ZOZNAM ZÁVAD
+             ========================================= */}
+
+          <div className="dashboard-section">
+            <div className="dashboard-section-heading">
+              <strong>{filterTitle[maintenanceFilter]}</strong>
+
+              <span>{filteredIssues.length} položiek</span>
+            </div>
+
+            <div className="issue-list">
+              {issuesLoading ? (
+                <div className="loading-box">Načítavam závady...</div>
+              ) : filteredIssues.length === 0 ? (
+                <div className="empty-box">
+                  V tejto kategórii momentálne nie sú žiadne závady.
+                </div>
+              ) : (
+                filteredIssues.map((issue) => (
+                  <button className="issue-card-new" key={issue.id}>
+                    <div className="issue-main">
+                      <div className="issue-top">
+                        <strong>
+                          #{String(issue.id).padStart(4, "0")}
+                        </strong>
+
+                        <span>{formatDate(issue.created_at)}</span>
+                      </div>
+
+                      <h3>{issue.description}</h3>
+
+                      <p>📍 {issue.location}</p>
+
+                      <div className="issue-reporter">
+                        Nahlásil: <strong>{issue.reporter_name}</strong>
+                      </div>
+                    </div>
+
+                    {issue.photo_key ? (
+                      <img
+                        src={issue.photo_key}
+                        alt="Fotografia závady"
+                        className="issue-photo"
+                      />
+                    ) : (
+                      <div className="issue-no-photo">
+                        <span>📷</span>
+                        <small>bez fotky</small>
+                      </div>
+                    )}
+
+                    <div className="issue-arrow">›</div>
+                  </button>
+                ))
+              )}
             </div>
           </div>
 
-          <div className="stats-grid">
-  <button
-    className={`stat-card ${maintenanceFilter === "new" ? "stat-active" : ""}`}
-    onClick={() => setMaintenanceFilter("new")}
-  >
-    <span className="stat-number">3</span>
-    <span className="stat-title">Nové závady</span>
-    <small>Čakajú na prevzatie</small>
-  </button>
-
-  <button
-    className={`stat-card ${maintenanceFilter === "progress" ? "stat-active" : ""}`}
-    onClick={() => setMaintenanceFilter("progress")}
-  >
-    <span className="stat-number">4</span>
-    <span className="stat-title">Rozpracované</span>
-    <small>Aktuálne riešené</small>
-  </button>
-
-  <button
-    className={`stat-card ${maintenanceFilter === "material" ? "stat-active" : ""}`}
-    onClick={() => setMaintenanceFilter("material")}
-  >
-    <span className="stat-number">2</span>
-    <span className="stat-title">Čaká na materiál</span>
-    <small>Potrebná súčinnosť</small>
-  </button>
-
-  <button
-    className={`stat-card ${maintenanceFilter === "manager" ? "stat-active" : ""}`}
-    onClick={() => setMaintenanceFilter("manager")}
-  >
-    <span className="stat-number">1</span>
-    <span className="stat-title">U vedúceho</span>
-    <small>Posunuté ďalej</small>
-  </button>
-</div>
-          <div className="dashboard-section">
-  <div className="dashboard-section-heading">
-    <strong>{filterTitle}</strong>
-    <span>{filteredIssues.length} položiek</span>
-  </div>
-
-  <div className="issue-list">
-    {filteredIssues.map((issue) => (
-      <button className="issue-card-new" key={issue.id}>
-        <div className="issue-main">
-          <div className="issue-top">
-            <strong>#{issue.id}</strong>
-            <span>{issue.time}</span>
-          </div>
-
-          <h3>{issue.title}</h3>
-
-          <p>📍 {issue.location}</p>
-
-          <div className="issue-reporter">
-            Nahlásil: <strong>{issue.reporter}</strong>
-          </div>
-        </div>
-
-        {issue.photo ? (
-          <img
-            src={issue.photo}
-            alt="Fotografia závady"
-            className="issue-photo"
-          />
-        ) : (
-          <div className="issue-no-photo">
-            <span>📷</span>
-            <small>bez fotky</small>
-          </div>
-        )}
-
-        <div className="issue-arrow">›</div>
-      </button>
-    ))}
-  </div>
-</div>
           <div className="maintenance-bottom-menu">
             <button className="bottom-menu-active">
               <span>🔧</span>
@@ -331,9 +379,9 @@ const filterTitle = {
     );
   }
 
-  // ============================
+  // =========================================================
   // ÚDRŽBÁR - PRIHLÁSENIE
-  // ============================
+  // =========================================================
 
   if (screen === "maintenance-login") {
     return (
@@ -396,9 +444,9 @@ const filterTitle = {
     );
   }
 
-  // ============================
+  // =========================================================
   // NAHLÁSENIE ZÁVADY
-  // ============================
+  // =========================================================
 
   if (screen === "report") {
     return (
@@ -488,9 +536,9 @@ const filterTitle = {
     );
   }
 
-  // ============================
+  // =========================================================
   // POTVRDENIE
-  // ============================
+  // =========================================================
 
   if (screen === "success") {
     return (
@@ -518,9 +566,9 @@ const filterTitle = {
     );
   }
 
-  // ============================
-  // DOMOV
-  // ============================
+  // =========================================================
+  // DOMOVSKÁ OBRAZOVKA
+  // =========================================================
 
   return (
     <main className="app-shell home-shell">
