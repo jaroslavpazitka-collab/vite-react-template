@@ -7,8 +7,14 @@ type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.get("/api/", (c) => {
-  return c.json({ name: "Tatralandia údržba API" });
+  return c.json({
+    name: "Tatralandia údržba API",
+  });
 });
+
+/* =========================================================
+   NOVÁ ZÁVADA
+   ========================================================= */
 
 app.post("/api/issues", async (c) => {
   try {
@@ -59,7 +65,11 @@ app.post("/api/issues", async (c) => {
       VALUES (?, 'created', 'reporter', ?, ?, CURRENT_TIMESTAMP)
       `
     )
-      .bind(issueId, reporterName, description)
+      .bind(
+        issueId,
+        reporterName,
+        "Závada bola nahlásená."
+      )
       .run();
 
     return c.json({
@@ -78,6 +88,10 @@ app.post("/api/issues", async (c) => {
     );
   }
 });
+
+/* =========================================================
+   ZOZNAM ZÁVAD
+   ========================================================= */
 
 app.get("/api/issues", async (c) => {
   try {
@@ -126,6 +140,165 @@ app.get("/api/issues", async (c) => {
       {
         success: false,
         error: "Nepodarilo sa načítať závady.",
+      },
+      500
+    );
+  }
+});
+
+/* =========================================================
+   PREVZATIE ZÁVADY ÚDRŽBÁROM
+   ========================================================= */
+
+app.post("/api/issues/:id/take", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return c.json(
+        {
+          success: false,
+          error: "Neplatné číslo závady.",
+        },
+        400
+      );
+    }
+
+    const body = await c.req.json();
+
+    const workerName = String(body.worker_name || "").trim();
+
+    if (!workerName) {
+      return c.json(
+        {
+          success: false,
+          error: "Chýba meno údržbára.",
+        },
+        400
+      );
+    }
+
+    const updateResult = await c.env.DB.prepare(
+      `
+      UPDATE issues
+      SET
+        status = 'progress',
+        current_worker_name = ?,
+        last_actor_name = ?,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND status = 'new'
+      `
+    )
+      .bind(workerName, workerName, id)
+      .run();
+
+    if (!updateResult.meta.changes) {
+      return c.json(
+        {
+          success: false,
+          error:
+            "Závadu sa nepodarilo prevziať. Možno ju už prevzal iný údržbár.",
+        },
+        409
+      );
+    }
+
+    await c.env.DB.prepare(
+      `
+      INSERT INTO issue_events (
+        issue_id,
+        event_type,
+        actor_role,
+        actor_name,
+        message,
+        created_at
+      )
+      VALUES (?, 'taken', 'maintenance', ?, ?, CURRENT_TIMESTAMP)
+      `
+    )
+      .bind(
+        id,
+        workerName,
+        "Údržbár prevzal závadu."
+      )
+      .run();
+
+    const updatedIssue = await c.env.DB.prepare(
+      `
+      SELECT
+        id,
+        reporter_name,
+        location,
+        description,
+        photo_key,
+        status,
+        current_worker_name,
+        last_actor_name,
+        created_at,
+        updated_at,
+        closed_at
+      FROM issues
+      WHERE id = ?
+      `
+    )
+      .bind(id)
+      .first();
+
+    return c.json({
+      success: true,
+      issue: updatedIssue,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return c.json(
+      {
+        success: false,
+        error: "Nepodarilo sa prevziať závadu.",
+      },
+      500
+    );
+  }
+});
+
+/* =========================================================
+   HISTÓRIA JEDNEJ ZÁVADY
+   ========================================================= */
+
+app.get("/api/issues/:id/events", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
+
+    const result = await c.env.DB.prepare(
+      `
+      SELECT
+        id,
+        issue_id,
+        event_type,
+        actor_role,
+        actor_name,
+        message,
+        photo_key,
+        created_at
+      FROM issue_events
+      WHERE issue_id = ?
+      ORDER BY id DESC
+      `
+    )
+      .bind(id)
+      .all();
+
+    return c.json({
+      success: true,
+      events: result.results,
+    });
+  } catch (error) {
+    console.error(error);
+
+    return c.json(
+      {
+        success: false,
+        error: "Nepodarilo sa načítať históriu závady.",
       },
       500
     );
