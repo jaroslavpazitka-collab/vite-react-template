@@ -748,18 +748,18 @@ app.post(
         }
       }
 
-      let newStatus = "";
+  
       let eventType = "";
       let eventMessage = message;
 
       if (action === "return") {
-        newStatus = "new";
+       
         eventType =
           "returned_to_maintenance";
       }
 
       if (action === "close") {
-        newStatus = "closed";
+    
         eventType =
           "manager_resolved";
       }
