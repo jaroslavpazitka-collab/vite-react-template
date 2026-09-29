@@ -346,7 +346,35 @@ app.post("/api/issues/:id/rating", async (c) => {
     const issue = await c.env.DB.prepare(`SELECT status,current_worker_name FROM issues WHERE id=?`).bind(id).first<{ status: string; current_worker_name: string | null }>();
     if (!issue) return c.json({ success: false, error: "Závada nebola nájdená." }, 404);
     if (issue.status !== "closed") return c.json({ success: false, error: "Hodnotiť je možné iba uzavretú opravu." }, 409);
-    if (!issue.current_worker_name) return c.json({ success: false, error: "Pri tejto závade nie je evidovaný údržbár, ktorému by sa hodnotenie priradilo." }, 409);
+
+    const maintenanceWorker = await c.env.DB.prepare(`
+      SELECT actor_name
+      FROM issue_events
+      WHERE issue_id=?
+        AND actor_role='maintenance'
+        AND actor_name IS NOT NULL
+        AND TRIM(actor_name) <> ''
+      ORDER BY
+        CASE
+          WHEN event_type IN ('resolved','escalated_to_manager','material_requested') THEN 0
+          WHEN event_type='taken' THEN 1
+          ELSE 2
+        END,
+        id DESC
+      LIMIT 1
+    `).bind(id).first<{ actor_name: string | null }>();
+
+    const ratedWorkerName =
+      maintenanceWorker?.actor_name ||
+      issue.current_worker_name;
+
+    if (!ratedWorkerName) {
+      return c.json({
+        success: false,
+        error: "Pri tejto závade sa nepodarilo určiť údržbára, ktorý ju riešil."
+      }, 409);
+    }
+
     const existing = await c.env.DB.prepare(`
       SELECT id FROM issue_events
       WHERE issue_id=? AND actor_role=? AND actor_name=? AND event_type IN ('rating_up','rating_down')
@@ -374,10 +402,40 @@ app.post("/api/issues/:id/rating", async (c) => {
 app.get("/api/ratings", async (c) => {
   try {
     const result = await c.env.DB.prepare(`
-      SELECT id,issue_id,event_type,actor_role,actor_name,message,created_at
-      FROM issue_events
-      WHERE event_type IN ('rating_up','rating_down')
-      ORDER BY id DESC
+      SELECT
+        r.id,
+        r.issue_id,
+        r.event_type,
+        r.actor_role,
+        r.actor_name,
+        r.message,
+        r.created_at,
+        COALESCE(
+          (
+            SELECT e.actor_name
+            FROM issue_events e
+            WHERE e.issue_id = r.issue_id
+              AND e.actor_role = 'maintenance'
+              AND e.actor_name IS NOT NULL
+              AND TRIM(e.actor_name) <> ''
+            ORDER BY
+              CASE
+                WHEN e.event_type IN ('resolved','escalated_to_manager','material_requested') THEN 0
+                WHEN e.event_type = 'taken' THEN 1
+                ELSE 2
+              END,
+              e.id DESC
+            LIMIT 1
+          ),
+          (
+            SELECT i.current_worker_name
+            FROM issues i
+            WHERE i.id = r.issue_id
+          )
+        ) AS rated_worker_name
+      FROM issue_events r
+      WHERE r.event_type IN ('rating_up','rating_down')
+      ORDER BY r.id DESC
     `).all();
     return c.json({ success: true, ratings: result.results });
   } catch (error) {
