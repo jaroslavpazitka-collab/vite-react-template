@@ -8,7 +8,9 @@ type Screen =
   | "success"
   | "maintenance-login"
   | "maintenance-dashboard"
-  | "maintenance-issue";
+  | "maintenance-issue"
+  | "maintenance-history"
+  | "maintenance-history-detail";
 
 type MaintenanceFilter =
   | "new"
@@ -36,10 +38,18 @@ type Issue = {
   closed_at: string | null;
 };
 
-type ModalType =
-  | "success"
-  | "error"
-  | "info";
+type IssueEvent = {
+  id: number;
+  issue_id: number;
+  event_type: string;
+  actor_role: string | null;
+  actor_name: string | null;
+  message: string | null;
+  photo_key: string | null;
+  created_at: string;
+};
+
+type ModalType = "success" | "error" | "info";
 
 type ModalState = {
   visible: boolean;
@@ -50,19 +60,19 @@ type ModalState = {
 };
 
 function App() {
-  const [screen, setScreen] =
-    useState<Screen>("home");
+  const [screen, setScreen] = useState<Screen>("home");
 
-  /* MODAL */
+  /* =========================
+     MODAL
+     ========================= */
 
-  const [modal, setModal] =
-    useState<ModalState>({
-      visible: false,
-      type: "info",
-      title: "",
-      message: "",
-      detail: "",
-    });
+  const [modal, setModal] = useState<ModalState>({
+    visible: false,
+    type: "info",
+    title: "",
+    message: "",
+    detail: "",
+  });
 
   const showModal = (
     type: ModalType,
@@ -86,16 +96,13 @@ function App() {
     }));
   };
 
-  /* NAHLÁSENIE */
+  /* =========================
+     NAHLÁSENIE
+     ========================= */
 
-  const [reporter, setReporter] =
-    useState("");
-
-  const [location, setLocation] =
-    useState("");
-
-  const [description, setDescription] =
-    useState("");
+  const [reporter, setReporter] = useState("");
+  const [location, setLocation] = useState("");
+  const [description, setDescription] = useState("");
 
   const [photoFile, setPhotoFile] =
     useState<File | null>(null);
@@ -103,17 +110,15 @@ function App() {
   const [photoName, setPhotoName] =
     useState("");
 
-  const [
-    reportLoading,
-    setReportLoading,
-  ] = useState(false);
+  const [reportLoading, setReportLoading] =
+    useState(false);
 
-  /* ÚDRŽBA */
+  /* =========================
+     ÚDRŽBA
+     ========================= */
 
-  const [
-    maintenanceName,
-    setMaintenanceName,
-  ] = useState("");
+  const [maintenanceName, setMaintenanceName] =
+    useState("");
 
   const [
     maintenancePassword,
@@ -129,50 +134,55 @@ function App() {
     maintenanceFilter,
     setMaintenanceFilter,
   ] =
-    useState<MaintenanceFilter>(
-      "new"
-    );
+    useState<MaintenanceFilter>("new");
 
   const [issues, setIssues] =
     useState<Issue[]>([]);
 
-  const [
-    issuesLoading,
-    setIssuesLoading,
-  ] = useState(false);
+  const [issuesLoading, setIssuesLoading] =
+    useState(false);
 
-  const [
-    selectedIssue,
-    setSelectedIssue,
-  ] =
+  const [selectedIssue, setSelectedIssue] =
     useState<Issue | null>(null);
 
+  const [actionLoading, setActionLoading] =
+    useState(false);
+
+  /* =========================
+     HISTÓRIA
+     ========================= */
+
+  const [issueEvents, setIssueEvents] =
+    useState<IssueEvent[]>([]);
+
   const [
-    actionLoading,
-    setActionLoading,
+    historyLoading,
+    setHistoryLoading,
   ] = useState(false);
 
-  /* AKCIA */
+  /* =========================
+     AKCIA
+     ========================= */
 
-  const [
-    actionMode,
-    setActionMode,
-  ] = useState<ActionMode>(null);
+  const [actionMode, setActionMode] =
+    useState<ActionMode>(null);
 
   const [
     actionComment,
     setActionComment,
   ] = useState("");
 
-  const [
-    actionPhoto,
-    setActionPhoto,
-  ] = useState<File | null>(null);
+  const [actionPhoto, setActionPhoto] =
+    useState<File | null>(null);
 
   const [
     actionPhotoName,
     setActionPhotoName,
   ] = useState("");
+
+  /* =========================
+     FOTO URL
+     ========================= */
 
   const getPhotoUrl = (
     key: string | null
@@ -184,7 +194,9 @@ function App() {
     )}`;
   };
 
-  /* NAČÍTANIE */
+  /* =========================
+     NAČÍTANIE ZÁVAD
+     ========================= */
 
   const loadIssues = async () => {
     try {
@@ -210,9 +222,7 @@ function App() {
         return;
       }
 
-      setIssues(
-        data.issues || []
-      );
+      setIssues(data.issues || []);
     } catch (error) {
       console.error(error);
 
@@ -226,7 +236,56 @@ function App() {
     }
   };
 
-  /* NOVÁ ZÁVADA */
+  /* =========================
+     NAČÍTANIE HISTÓRIE ZÁVADY
+     ========================= */
+
+  const loadIssueEvents = async (
+    issueId: number
+  ) => {
+    try {
+      setHistoryLoading(true);
+
+      const response = await fetch(
+        `/api/issues/${issueId}/events`
+      );
+
+      const data =
+        await response.json();
+
+      if (
+        !response.ok ||
+        !data.success
+      ) {
+        showModal(
+          "error",
+          "Históriu sa nepodarilo načítať",
+          data.error ||
+            "Skúste to znova."
+        );
+
+        return;
+      }
+
+      setIssueEvents(
+        data.events || []
+      );
+    } catch (error) {
+      console.error(error);
+
+      showModal(
+        "error",
+        "Chyba spojenia",
+        "Nepodarilo sa načítať históriu závady."
+      );
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  /* =========================
+     NOVÁ ZÁVADA
+     ========================= */
 
   const submitReport = async (
     e: React.FormEvent
@@ -277,13 +336,10 @@ function App() {
       }
 
       const response =
-        await fetch(
-          "/api/issues",
-          {
-            method: "POST",
-            body: formData,
-          }
-        );
+        await fetch("/api/issues", {
+          method: "POST",
+          body: formData,
+        });
 
       const data =
         await response.json();
@@ -325,7 +381,9 @@ function App() {
     setScreen("home");
   };
 
-  /* LOGIN */
+  /* =========================
+     LOGIN
+     ========================= */
 
   const loginMaintenance =
     async (
@@ -333,15 +391,12 @@ function App() {
     ) => {
       e.preventDefault();
 
-      if (
-        !maintenanceName.trim()
-      ) {
+      if (!maintenanceName.trim()) {
         showModal(
           "error",
           "Chýba meno",
           "Pred prihlásením napíšte svoje meno."
         );
-
         return;
       }
 
@@ -354,7 +409,6 @@ function App() {
           "Nesprávne heslo",
           "Zadané heslo údržby nie je správne."
         );
-
         return;
       }
 
@@ -364,39 +418,54 @@ function App() {
 
       await loadIssues();
 
-      setMaintenanceFilter(
-        "new"
-      );
+      setMaintenanceFilter("new");
 
       setScreen(
         "maintenance-dashboard"
       );
     };
 
-  const logoutMaintenance =
-    () => {
-      setMaintenancePassword("");
-      setMaintenanceName("");
-      setLoggedMaintenanceName("");
-      setIssues([]);
-      setSelectedIssue(null);
-      setMaintenanceFilter("new");
-      setScreen("home");
-    };
+  const logoutMaintenance = () => {
+    setMaintenancePassword("");
+    setMaintenanceName("");
+    setLoggedMaintenanceName("");
+    setIssues([]);
+    setIssueEvents([]);
+    setSelectedIssue(null);
+    setMaintenanceFilter("new");
+    setScreen("home");
+  };
 
-  /* DETAIL */
+  /* =========================
+     DETAIL
+     ========================= */
 
   const openIssue = (
     issue: Issue
   ) => {
     setSelectedIssue(issue);
-
     setScreen(
       "maintenance-issue"
     );
   };
 
-  /* PREVZATIE */
+  const openHistoryIssue =
+    async (issue: Issue) => {
+      setSelectedIssue(issue);
+      setIssueEvents([]);
+
+      setScreen(
+        "maintenance-history-detail"
+      );
+
+      await loadIssueEvents(
+        issue.id
+      );
+    };
+
+  /* =========================
+     PREVZATIE
+     ========================= */
 
   const takeIssue = async () => {
     if (!selectedIssue) return;
@@ -437,7 +506,6 @@ function App() {
         );
 
         await loadIssues();
-
         return;
       }
 
@@ -471,7 +539,9 @@ function App() {
     }
   };
 
-  /* OTVORENIE AKCIE */
+  /* =========================
+     AKCIA
+     ========================= */
 
   const openAction = (
     mode: ActionMode
@@ -489,8 +559,6 @@ function App() {
     setActionPhotoName("");
   };
 
-  /* ODOSLANIE AKCIE */
-
   const submitAction =
     async () => {
       if (
@@ -500,38 +568,32 @@ function App() {
         return;
       }
 
-      if (
-        !actionComment.trim()
-      ) {
+      if (!actionComment.trim()) {
         showModal(
           "error",
           "Chýba komentár",
           "Napíšte stručne, čo bolo vykonané alebo čo je potrebné."
         );
-
         return;
       }
 
       let targetStatus = "";
 
       if (
-        actionMode ===
-        "resolve"
+        actionMode === "resolve"
       ) {
         targetStatus = "closed";
       }
 
       if (
-        actionMode ===
-        "material"
+        actionMode === "material"
       ) {
         targetStatus =
           "material";
       }
 
       if (
-        actionMode ===
-        "manager"
+        actionMode === "manager"
       ) {
         targetStatus =
           "manager";
@@ -655,13 +717,21 @@ function App() {
       }
     };
 
-  /* FILTRE */
+  /* =========================
+     FILTRE
+     ========================= */
 
   const filteredIssues =
     issues.filter(
       (issue) =>
         issue.status ===
         maintenanceFilter
+    );
+
+  const closedIssues =
+    issues.filter(
+      (issue) =>
+        issue.status === "closed"
     );
 
   const newCount =
@@ -696,18 +766,19 @@ function App() {
     string
   > = {
     new: "Nové závady",
-    progress:
-      "Rozpracované",
+    progress: "Rozpracované",
     material:
       "Čaká na materiál",
     manager:
       "Posunuté vedúcemu",
   };
 
-  /* DÁTUM */
+  /* =========================
+     DÁTUM
+     ========================= */
 
   const formatDate = (
-    dateValue: string
+    dateValue: string | null
   ) => {
     if (!dateValue) return "";
 
@@ -725,9 +796,7 @@ function App() {
     }
 
     if (
-      !normalized.endsWith(
-        "Z"
-      ) &&
+      !normalized.endsWith("Z") &&
       !normalized.includes("+")
     ) {
       normalized += "Z";
@@ -762,25 +831,70 @@ function App() {
     switch (status) {
       case "new":
         return "Nová závada";
-
       case "progress":
         return "Rozpracovaná";
-
       case "material":
         return "Čaká na materiál";
-
       case "manager":
         return "U vedúceho";
-
       case "closed":
         return "Vyriešená";
-
       default:
         return status;
     }
   };
 
-  /* HLAVNÝ MODAL */
+  const eventLabel = (
+    type: string
+  ) => {
+    switch (type) {
+      case "created":
+        return "Závada nahlásená";
+
+      case "taken":
+        return "Závada prevzatá";
+
+      case "resolved":
+        return "Závada vyriešená";
+
+      case "material_requested":
+        return "Požiadavka na materiál";
+
+      case "escalated_to_manager":
+        return "Posunuté vedúcemu";
+
+      default:
+        return "Aktualizácia";
+    }
+  };
+
+  const eventIcon = (
+    type: string
+  ) => {
+    switch (type) {
+      case "created":
+        return "⚠️";
+
+      case "taken":
+        return "🔧";
+
+      case "resolved":
+        return "✅";
+
+      case "material_requested":
+        return "📦";
+
+      case "escalated_to_manager":
+        return "➡️";
+
+      default:
+        return "•";
+    }
+  };
+
+  /* =========================
+     MODAL
+     ========================= */
 
   const modalWindow =
     modal.visible ? (
@@ -810,13 +924,9 @@ function App() {
             TATRALANDIA • ÚDRŽBA
           </div>
 
-          <h2>
-            {modal.title}
-          </h2>
+          <h2>{modal.title}</h2>
 
-          <p>
-            {modal.message}
-          </p>
+          <p>{modal.message}</p>
 
           {modal.detail && (
             <div className="custom-modal-detail">
@@ -834,13 +944,14 @@ function App() {
       </div>
     ) : null;
 
-  /* AKČNÉ OKNO */
+  /* =========================
+     AKČNÉ OKNO
+     ========================= */
 
   const actionWindow =
     actionMode ? (
       <div className="action-overlay">
         <div className="action-dialog">
-
           <div className="action-handle"></div>
 
           <div className="action-dialog-icon">
@@ -875,24 +986,15 @@ function App() {
 
           <label className="action-label">
             Komentár
+
             <textarea
-              value={
-                actionComment
-              }
+              value={actionComment}
               onChange={(e) =>
                 setActionComment(
                   e.target.value
                 )
               }
-              placeholder={
-                actionMode ===
-                "resolve"
-                  ? "Napr. vymenené tesnenie, závada odstránená..."
-                  : actionMode ===
-                    "material"
-                  ? "Napr. potrebujeme ventil DN50..."
-                  : "Popíšte problém alebo požiadavku..."
-              }
+              placeholder="Napíšte komentár..."
               rows={4}
             />
           </label>
@@ -921,17 +1023,13 @@ function App() {
               capture="environment"
               onChange={(e) => {
                 const file =
-                  e.target
-                    .files?.[0] ||
+                  e.target.files?.[0] ||
                   null;
 
-                setActionPhoto(
-                  file
-                );
+                setActionPhoto(file);
 
                 setActionPhotoName(
-                  file?.name ||
-                    ""
+                  file?.name || ""
                 );
               }}
             />
@@ -939,19 +1037,14 @@ function App() {
 
           {actionPhotoName && (
             <div className="action-photo-selected">
-              ✓{" "}
-              {actionPhotoName}
+              ✓ {actionPhotoName}
             </div>
           )}
 
           <button
             className="action-confirm-button"
-            onClick={
-              submitAction
-            }
-            disabled={
-              actionLoading
-            }
+            onClick={submitAction}
+            disabled={actionLoading}
           >
             {actionLoading
               ? "Ukladám..."
@@ -966,21 +1059,367 @@ function App() {
 
           <button
             className="action-cancel-button"
-            onClick={
-              closeAction
-            }
-            disabled={
-              actionLoading
-            }
+            onClick={closeAction}
+            disabled={actionLoading}
           >
             Zrušiť
           </button>
-
         </div>
       </div>
     ) : null;
 
-  /* DETAIL */
+  /* =========================================================
+     HISTÓRIA - DETAIL
+     ========================================================= */
+
+  if (
+    screen ===
+      "maintenance-history-detail" &&
+    selectedIssue
+  ) {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card history-detail-card">
+
+            <div className="top-bar">
+              <button
+                className="back-button"
+                onClick={() =>
+                  setScreen(
+                    "maintenance-history"
+                  )
+                }
+              >
+                ← História
+              </button>
+
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="small-logo"
+              />
+            </div>
+
+            <div className="history-detail-number">
+              ZÁVADA #
+              {String(
+                selectedIssue.id
+              ).padStart(4, "0")}
+            </div>
+
+            <div className="history-closed-badge">
+              ✓ VYRIEŠENÁ
+            </div>
+
+            <h1 className="history-detail-title">
+              {selectedIssue.description}
+            </h1>
+
+            <div className="history-summary-box">
+              <div>
+                <small>MIESTO</small>
+                <strong>
+                  {selectedIssue.location}
+                </strong>
+              </div>
+
+              <div>
+                <small>NAHLÁSIL</small>
+                <strong>
+                  {selectedIssue.reporter_name}
+                </strong>
+              </div>
+
+              <div>
+                <small>NAHLÁSENÉ</small>
+                <strong>
+                  {formatDate(
+                    selectedIssue.created_at
+                  )}
+                </strong>
+              </div>
+
+              <div>
+                <small>UZAVRETÉ</small>
+                <strong>
+                  {formatDate(
+                    selectedIssue.closed_at
+                  )}
+                </strong>
+              </div>
+            </div>
+
+            {selectedIssue.photo_key && (
+              <div className="history-original-photo">
+                <div className="history-photo-label">
+                  PÔVODNÁ FOTOGRAFIA
+                </div>
+
+                <img
+                  src={getPhotoUrl(
+                    selectedIssue.photo_key
+                  )}
+                  alt="Pôvodná fotografia závady"
+                />
+              </div>
+            )}
+
+            <div className="timeline-title">
+              HISTÓRIA ZÁVADY
+            </div>
+
+            {historyLoading ? (
+              <div className="loading-box">
+                Načítavam históriu...
+              </div>
+            ) : issueEvents.length ===
+              0 ? (
+              <div className="empty-box">
+                K tejto závade zatiaľ
+                nie je dostupná história.
+              </div>
+            ) : (
+              <div className="history-timeline">
+                {issueEvents.map(
+                  (event) => (
+                    <div
+                      className="timeline-item"
+                      key={event.id}
+                    >
+                      <div className="timeline-icon">
+                        {eventIcon(
+                          event.event_type
+                        )}
+                      </div>
+
+                      <div className="timeline-content">
+                        <div className="timeline-head">
+                          <strong>
+                            {eventLabel(
+                              event.event_type
+                            )}
+                          </strong>
+
+                          <span>
+                            {formatDate(
+                              event.created_at
+                            )}
+                          </span>
+                        </div>
+
+                        {event.actor_name && (
+                          <div className="timeline-actor">
+                            👤{" "}
+                            {event.actor_name}
+                          </div>
+                        )}
+
+                        {event.message && (
+                          <p>
+                            {event.message}
+                          </p>
+                        )}
+
+                        {event.photo_key && (
+                          <img
+                            src={getPhotoUrl(
+                              event.photo_key
+                            )}
+                            alt="Fotografia udalosti"
+                            className="timeline-photo"
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+
+            <button
+              className="detail-back-button"
+              onClick={() =>
+                setScreen(
+                  "maintenance-history"
+                )
+              }
+            >
+              Späť na históriu
+            </button>
+          </section>
+        </main>
+
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     HISTÓRIA - ZOZNAM
+     ========================================================= */
+
+  if (
+    screen ===
+    "maintenance-history"
+  ) {
+    return (
+      <>
+        <main className="app-shell">
+          <section className="app-card dashboard-card">
+
+            <div className="dashboard-header">
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="dashboard-logo"
+              />
+
+              <button
+                className="logout-button"
+                onClick={
+                  logoutMaintenance
+                }
+              >
+                Odhlásiť
+              </button>
+            </div>
+
+            <div className="history-header">
+              <div>
+                <div className="section-label">
+                  ARCHÍV ÚDRŽBY
+                </div>
+
+                <h1>História</h1>
+              </div>
+
+              <div className="history-count">
+                {closedIssues.length}
+              </div>
+            </div>
+
+            <p className="history-subtitle">
+              Všetky vyriešené a uzavreté
+              závady.
+            </p>
+
+            <div className="history-list">
+              {issuesLoading ? (
+                <div className="loading-box">
+                  Načítavam históriu...
+                </div>
+              ) : closedIssues.length ===
+                0 ? (
+                <div className="empty-box">
+                  Zatiaľ nie sú žiadne
+                  uzavreté závady.
+                </div>
+              ) : (
+                closedIssues.map(
+                  (issue) => (
+                    <button
+                      className="history-card"
+                      key={issue.id}
+                      onClick={() =>
+                        openHistoryIssue(
+                          issue
+                        )
+                      }
+                    >
+                      <div className="history-card-status">
+                        ✓
+                      </div>
+
+                      <div className="history-card-main">
+                        <div className="history-card-top">
+                          <strong>
+                            #
+                            {String(
+                              issue.id
+                            ).padStart(
+                              4,
+                              "0"
+                            )}
+                          </strong>
+
+                          <span>
+                            {formatDate(
+                              issue.closed_at ||
+                                issue.updated_at
+                            )}
+                          </span>
+                        </div>
+
+                        <h3>
+                          {
+                            issue.description
+                          }
+                        </h3>
+
+                        <p>
+                          📍{" "}
+                          {issue.location}
+                        </p>
+
+                        <small>
+                          Vyriešil:{" "}
+                          {issue.last_actor_name ||
+                            "Údržba"}
+                        </small>
+                      </div>
+
+                      {issue.photo_key ? (
+                        <img
+                          src={getPhotoUrl(
+                            issue.photo_key
+                          )}
+                          alt="Fotografia"
+                          className="history-card-photo"
+                        />
+                      ) : (
+                        <div className="history-card-no-photo">
+                          📷
+                        </div>
+                      )}
+
+                      <div className="issue-arrow">
+                        ›
+                      </div>
+                    </button>
+                  )
+                )
+              )}
+            </div>
+
+            <div className="maintenance-bottom-menu">
+              <button
+                onClick={() =>
+                  setScreen(
+                    "maintenance-dashboard"
+                  )
+                }
+              >
+                <span>🔧</span>
+                Závady
+              </button>
+
+              <button className="bottom-menu-active">
+                <span>📋</span>
+                História
+              </button>
+            </div>
+          </section>
+        </main>
+
+        {modalWindow}
+      </>
+    );
+  }
+
+  /* =========================================================
+     DETAIL ZÁVADY
+     ========================================================= */
 
   if (
     screen ===
@@ -990,11 +1429,9 @@ function App() {
     return (
       <>
         <main className="app-shell">
-
           <section className="app-card issue-detail-card">
 
             <div className="top-bar">
-
               <button
                 className="back-button"
                 onClick={() =>
@@ -1007,23 +1444,17 @@ function App() {
               </button>
 
               <img
-                src={
-                  tatralandiaLogo
-                }
+                src={tatralandiaLogo}
                 alt="Tatralandia"
                 className="small-logo"
               />
-
             </div>
 
             <div className="issue-detail-number">
               ZÁVADA #
               {String(
                 selectedIssue.id
-              ).padStart(
-                4,
-                "0"
-              )}
+              ).padStart(4, "0")}
             </div>
 
             <div
@@ -1035,9 +1466,7 @@ function App() {
             </div>
 
             <h1 className="issue-detail-title">
-              {
-                selectedIssue.description
-              }
+              {selectedIssue.description}
             </h1>
 
             <div className="issue-detail-box">
@@ -1053,9 +1482,7 @@ function App() {
                   </small>
 
                   <strong>
-                    {
-                      selectedIssue.location
-                    }
+                    {selectedIssue.location}
                   </strong>
                 </div>
               </div>
@@ -1066,9 +1493,7 @@ function App() {
                 </span>
 
                 <div>
-                  <small>
-                    NAHLÁSIL
-                  </small>
+                  <small>NAHLÁSIL</small>
 
                   <strong>
                     {
@@ -1095,25 +1520,19 @@ function App() {
                   </strong>
                 </div>
               </div>
-
             </div>
 
             <div className="detail-description">
-
               <small>
                 POPIS ZÁVADY
               </small>
 
               <p>
-                {
-                  selectedIssue.description
-                }
+                {selectedIssue.description}
               </p>
-
             </div>
 
             {selectedIssue.photo_key ? (
-
               <img
                 src={getPhotoUrl(
                   selectedIssue.photo_key
@@ -1121,27 +1540,19 @@ function App() {
                 alt="Fotografia závady"
                 className="detail-photo"
               />
-
             ) : (
-
               <div className="detail-photo-placeholder">
-
-                <span>
-                  📷
-                </span>
+                <span>📷</span>
 
                 <strong>
                   Fotografia nebola
                   priložená
                 </strong>
-
               </div>
-
             )}
 
             {selectedIssue.status ===
               "new" && (
-
               <button
                 className="take-issue-button"
                 onClick={takeIssue}
@@ -1153,7 +1564,6 @@ function App() {
                   ? "Preberám..."
                   : "🔧 Prevziať závadu"}
               </button>
-
             )}
 
             {selectedIssue.status ===
@@ -1176,7 +1586,6 @@ function App() {
                         "Údržba"}
                     </strong>
                   </div>
-
                 </div>
 
                 <div className="issue-actions-title">
@@ -1193,9 +1602,7 @@ function App() {
                       )
                     }
                   >
-                    <span>
-                      ✅
-                    </span>
+                    <span>✅</span>
 
                     <div>
                       <strong>
@@ -1216,9 +1623,7 @@ function App() {
                       )
                     }
                   >
-                    <span>
-                      📦
-                    </span>
+                    <span>📦</span>
 
                     <div>
                       <strong>
@@ -1239,9 +1644,7 @@ function App() {
                       )
                     }
                   >
-                    <span>
-                      ➡️
-                    </span>
+                    <span>➡️</span>
 
                     <div>
                       <strong>
@@ -1253,38 +1656,13 @@ function App() {
                       </small>
                     </div>
                   </button>
-
                 </div>
               </>
-            )}
-
-            {selectedIssue.status ===
-              "closed" && (
-
-              <div className="resolved-info">
-                <span>
-                  ✓
-                </span>
-
-                <div>
-                  <small>
-                    ZÁVADA UKONČENÁ
-                  </small>
-
-                  <strong>
-                    Vyriešil:{" "}
-                    {selectedIssue.last_actor_name ||
-                      "Údržba"}
-                  </strong>
-                </div>
-              </div>
-
             )}
 
             <button
               className="detail-back-button"
               onClick={() => {
-
                 if (
                   selectedIssue.status ===
                   "progress"
@@ -1315,14 +1693,12 @@ function App() {
                 setScreen(
                   "maintenance-dashboard"
                 );
-
               }}
             >
               Späť na prehľad
             </button>
 
           </section>
-
         </main>
 
         {modalWindow}
@@ -1331,7 +1707,9 @@ function App() {
     );
   }
 
-  /* DASHBOARD */
+  /* =========================================================
+     DASHBOARD
+     ========================================================= */
 
   if (
     screen ===
@@ -1340,15 +1718,11 @@ function App() {
     return (
       <>
         <main className="app-shell">
-
           <section className="app-card dashboard-card">
 
             <div className="dashboard-header">
-
               <img
-                src={
-                  tatralandiaLogo
-                }
+                src={tatralandiaLogo}
                 alt="Tatralandia"
                 className="dashboard-logo"
               />
@@ -1361,11 +1735,9 @@ function App() {
               >
                 Odhlásiť
               </button>
-
             </div>
 
             <div className="welcome-block">
-
               <div>
                 <span>
                   PRIHLÁSENÝ ÚDRŽBÁR
@@ -1381,51 +1753,38 @@ function App() {
               <div className="worker-avatar">
                 🔧
               </div>
-
             </div>
 
             <div className="dashboard-title-row">
-
               <div>
-
                 <div className="section-label">
                   PREHĽAD ÚDRŽBY
                 </div>
 
-                <h1>
-                  Závady
-                </h1>
-
+                <h1>Závady</h1>
               </div>
 
               <button
                 className="notification-bell"
                 onClick={async () => {
-
                   setMaintenanceFilter(
                     "new"
                   );
 
                   await loadIssues();
-
                 }}
               >
                 🔔
 
-                {newCount >
-                  0 && (
-
+                {newCount > 0 && (
                   <span>
                     {newCount}
                   </span>
-
                 )}
               </button>
-
             </div>
 
             <div className="stats-grid">
-
               <button
                 className={`stat-card ${
                   maintenanceFilter ===
@@ -1529,13 +1888,10 @@ function App() {
                   Posunuté ďalej
                 </small>
               </button>
-
             </div>
 
             <div className="dashboard-section">
-
               <div className="dashboard-section-heading">
-
                 <strong>
                   {
                     filterTitle[
@@ -1550,45 +1906,34 @@ function App() {
                   }{" "}
                   položiek
                 </span>
-
               </div>
 
               <div className="issue-list">
-
                 {issuesLoading ? (
-
                   <div className="loading-box">
                     Načítavam závady...
                   </div>
-
                 ) : filteredIssues.length ===
                   0 ? (
-
                   <div className="empty-box">
-                    V tejto kategórii momentálne nie sú žiadne závady.
+                    V tejto kategórii
+                    momentálne nie sú
+                    žiadne závady.
                   </div>
-
                 ) : (
-
                   filteredIssues.map(
                     (issue) => (
-
                       <button
                         className="issue-card-new"
-                        key={
-                          issue.id
-                        }
+                        key={issue.id}
                         onClick={() =>
                           openIssue(
                             issue
                           )
                         }
                       >
-
                         <div className="issue-main">
-
                           <div className="issue-top">
-
                             <strong>
                               #
                               {String(
@@ -1604,7 +1949,6 @@ function App() {
                                 issue.created_at
                               )}
                             </span>
-
                           </div>
 
                           <h3>
@@ -1628,11 +1972,9 @@ function App() {
                               }
                             </strong>
                           </div>
-
                         </div>
 
                         {issue.photo_key ? (
-
                           <img
                             src={getPhotoUrl(
                               issue.photo_key
@@ -1640,58 +1982,44 @@ function App() {
                             alt="Fotografia závady"
                             className="issue-photo"
                           />
-
                         ) : (
-
                           <div className="issue-no-photo">
-
-                            <span>
-                              📷
-                            </span>
+                            <span>📷</span>
 
                             <small>
                               bez fotky
                             </small>
-
                           </div>
-
                         )}
 
                         <div className="issue-arrow">
                           ›
                         </div>
-
                       </button>
-
                     )
                   )
-
                 )}
-
               </div>
-
             </div>
 
             <div className="maintenance-bottom-menu">
-
               <button className="bottom-menu-active">
-                <span>
-                  🔧
-                </span>
+                <span>🔧</span>
                 Závady
               </button>
 
-              <button>
-                <span>
-                  📋
-                </span>
+              <button
+                onClick={() =>
+                  setScreen(
+                    "maintenance-history"
+                  )
+                }
+              >
+                <span>📋</span>
                 História
               </button>
-
             </div>
-
           </section>
-
         </main>
 
         {modalWindow}
@@ -1699,7 +2027,9 @@ function App() {
     );
   }
 
-  /* LOGIN */
+  /* =========================================================
+     LOGIN
+     ========================================================= */
 
   if (
     screen ===
@@ -1708,30 +2038,23 @@ function App() {
     return (
       <>
         <main className="app-shell">
-
           <section className="app-card login-card">
 
             <div className="top-bar">
-
               <button
                 className="back-button"
                 onClick={() =>
-                  setScreen(
-                    "home"
-                  )
+                  setScreen("home")
                 }
               >
                 ← Späť
               </button>
 
               <img
-                src={
-                  tatralandiaLogo
-                }
+                src={tatralandiaLogo}
                 alt="Tatralandia"
                 className="small-logo"
               />
-
             </div>
 
             <div className="login-icon-big">
@@ -1747,7 +2070,8 @@ function App() {
             </h1>
 
             <p className="subtitle">
-              Zadajte svoje meno a spoločné heslo údržby.
+              Zadajte svoje meno a
+              spoločné heslo údržby.
             </p>
 
             <form
@@ -1756,7 +2080,6 @@ function App() {
                 loginMaintenance
               }
             >
-
               <label>
                 Vaše meno
 
@@ -1798,7 +2121,6 @@ function App() {
               >
                 🔧 Prihlásiť sa
               </button>
-
             </form>
 
             <div className="test-password">
@@ -1809,7 +2131,6 @@ function App() {
             </div>
 
           </section>
-
         </main>
 
         {modalWindow}
@@ -1817,38 +2138,31 @@ function App() {
     );
   }
 
-  /* REPORT */
+  /* =========================================================
+     REPORT
+     ========================================================= */
 
-  if (
-    screen === "report"
-  ) {
+  if (screen === "report") {
     return (
       <>
         <main className="app-shell">
-
           <section className="app-card">
 
             <div className="top-bar">
-
               <button
                 className="back-button"
                 onClick={() =>
-                  setScreen(
-                    "home"
-                  )
+                  setScreen("home")
                 }
               >
                 ← Späť
               </button>
 
               <img
-                src={
-                  tatralandiaLogo
-                }
+                src={tatralandiaLogo}
                 alt="Tatralandia"
                 className="small-logo"
               />
-
             </div>
 
             <div className="section-badge">
@@ -1860,25 +2174,22 @@ function App() {
             </h1>
 
             <p className="subtitle">
-              Vyplňte základné informácie. Hlásenie bude odoslané priamo údržbe.
+              Vyplňte základné informácie.
+              Hlásenie bude odoslané priamo
+              údržbe.
             </p>
 
             <form
               className="report-form"
-              onSubmit={
-                submitReport
-              }
+              onSubmit={submitReport}
             >
-
               <label>
                 Kto nahlasuje?
 
                 <input
                   type="text"
                   placeholder="Napíšte svoje meno"
-                  value={
-                    reporter
-                  }
+                  value={reporter}
                   onChange={(e) =>
                     setReporter(
                       e.target.value
@@ -1893,9 +2204,7 @@ function App() {
                 <input
                   type="text"
                   placeholder="Napr. Hala Tropic – sprchy"
-                  value={
-                    location
-                  }
+                  value={location}
                   onChange={(e) =>
                     setLocation(
                       e.target.value
@@ -1909,9 +2218,7 @@ function App() {
 
                 <textarea
                   placeholder="Popíšte, čo nefunguje alebo čo je poškodené..."
-                  value={
-                    description
-                  }
+                  value={description}
                   onChange={(e) =>
                     setDescription(
                       e.target.value
@@ -1922,7 +2229,6 @@ function App() {
               </label>
 
               <label className="photo-upload">
-
                 <div className="photo-icon">
                   📷
                 </div>
@@ -1933,7 +2239,8 @@ function App() {
                   </strong>
 
                   <span>
-                    Odfotiť závadu alebo vybrať fotografiu
+                    Odfotiť závadu alebo
+                    vybrať fotografiu
                   </span>
                 </div>
 
@@ -1942,32 +2249,24 @@ function App() {
                   accept="image/*"
                   capture="environment"
                   onChange={(e) => {
-
                     const file =
                       e.target.files?.[0] ||
                       null;
 
-                    setPhotoFile(
-                      file
-                    );
+                    setPhotoFile(file);
 
                     setPhotoName(
-                      file?.name ||
-                        ""
+                      file?.name || ""
                     );
-
                   }}
                 />
-
               </label>
 
               {photoName && (
-
                 <div className="photo-selected">
                   ✓ Fotografia vybraná:{" "}
                   {photoName}
                 </div>
-
               )}
 
               <button
@@ -1981,11 +2280,9 @@ function App() {
                   ? "Odosielam..."
                   : "⚠️ Odoslať závadu"}
               </button>
-
             </form>
 
           </section>
-
         </main>
 
         {modalWindow}
@@ -1993,20 +2290,17 @@ function App() {
     );
   }
 
-  /* SUCCESS */
+  /* =========================================================
+     SUCCESS
+     ========================================================= */
 
-  if (
-    screen === "success"
-  ) {
+  if (screen === "success") {
     return (
       <main className="app-shell">
-
         <section className="app-card success-card">
 
           <img
-            src={
-              tatralandiaLogo
-            }
+            src={tatralandiaLogo}
             alt="Tatralandia"
             className="success-logo"
           />
@@ -2015,43 +2309,37 @@ function App() {
             ✓
           </div>
 
-          <h1>
-            Ďakujeme
-          </h1>
+          <h1>Ďakujeme</h1>
 
           <p>
-            Závada bola úspešne nahlásená a odoslaná údržbe na riešenie.
+            Závada bola úspešne nahlásená
+            a odoslaná údržbe na riešenie.
           </p>
 
           <button
             className="submit-button"
-            onClick={
-              resetReport
-            }
+            onClick={resetReport}
           >
             Späť na úvod
           </button>
 
         </section>
-
       </main>
     );
   }
 
-  /* HOME */
+  /* =========================================================
+     HOME
+     ========================================================= */
 
   return (
     <>
       <main className="app-shell home-shell">
-
         <section className="app-card home-card">
 
           <div className="brand-area">
-
             <img
-              src={
-                tatralandiaLogo
-              }
+              src={tatralandiaLogo}
               alt="Tatralandia"
               className="tatralandia-logo"
             />
@@ -2059,38 +2347,32 @@ function App() {
             <div className="brand-description">
               INTERNÝ SYSTÉM ÚDRŽBY
             </div>
-
           </div>
 
           <button
             className="report-button"
             onClick={() =>
-              setScreen(
-                "report"
-              )
+              setScreen("report")
             }
           >
-
             <div className="report-button-icon">
               ⚠️
             </div>
 
             <div className="report-button-content">
-
               <strong>
                 Nahlásiť závadu
               </strong>
 
               <span>
-                Odoslať nové hlásenie údržbe
+                Odoslať nové hlásenie
+                údržbe
               </span>
-
             </div>
 
             <div className="arrow">
               ›
             </div>
-
           </button>
 
           <div className="employee-login-title">
@@ -2098,7 +2380,6 @@ function App() {
           </div>
 
           <div className="role-buttons">
-
             <button
               className="role-button"
               onClick={() =>
@@ -2107,7 +2388,6 @@ function App() {
                 )
               }
             >
-
               <div className="role-icon">
                 🔧
               </div>
@@ -2125,7 +2405,6 @@ function App() {
               <div className="role-arrow">
                 ›
               </div>
-
             </button>
 
             <button
@@ -2138,7 +2417,6 @@ function App() {
                 )
               }
             >
-
               <div className="role-icon">
                 🛠️
               </div>
@@ -2156,7 +2434,6 @@ function App() {
               <div className="role-arrow">
                 ›
               </div>
-
             </button>
 
             <button
@@ -2169,7 +2446,6 @@ function App() {
                 )
               }
             >
-
               <div className="role-icon">
                 📊
               </div>
@@ -2187,17 +2463,15 @@ function App() {
               <div className="role-arrow">
                 ›
               </div>
-
             </button>
-
           </div>
 
           <div className="footer-line">
-            Tatralandia • interný systém hlásenia závad
+            Tatralandia • interný systém
+            hlásenia závad
           </div>
 
         </section>
-
       </main>
 
       {modalWindow}
