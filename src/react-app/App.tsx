@@ -1832,20 +1832,6 @@ function App() {
      PREHĽAD VEDÚCEHO ÚDRŽBY
      ========================================================= */
 
-  const managerMaterialCount =
-    issues.filter(
-      (issue) =>
-        issue.status ===
-        "material"
-    ).length;
-
-  const managerIncomingCount =
-    issues.filter(
-      (issue) =>
-        issue.status ===
-        "manager"
-    ).length;
-
   const operationsCount =
     issues.filter(
       (issue) =>
