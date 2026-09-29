@@ -25,16 +25,40 @@ function App() {
 const [maintenanceFilter, setMaintenanceFilter] = useState<
   "new" | "progress" | "material" | "manager"
 >("new");
-  const submitReport = (e: React.FormEvent) => {
-    e.preventDefault();
+const submitReport = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (!reporter.trim() || !location.trim() || !description.trim()) {
-      alert("Prosím, vyplňte meno, miesto a popis závady.");
+  if (!reporter.trim() || !location.trim() || !description.trim()) {
+    alert("Prosím, vyplňte meno, miesto a popis závady.");
+    return;
+  }
+
+  try {
+    const response = await fetch("/api/issues", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        reporter_name: reporter.trim(),
+        location: location.trim(),
+        description: description.trim(),
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.success) {
+      alert(data.error || "Závadu sa nepodarilo odoslať.");
       return;
     }
 
     setScreen("success");
-  };
+  } catch (error) {
+    console.error(error);
+    alert("Nepodarilo sa spojiť so serverom.");
+  }
+};
 
   const resetReport = () => {
     setReporter("");
