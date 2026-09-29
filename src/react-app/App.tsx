@@ -16,6 +16,12 @@ type MaintenanceFilter =
   | "material"
   | "manager";
 
+type ActionMode =
+  | "resolve"
+  | "material"
+  | "manager"
+  | null;
+
 type Issue = {
   id: number;
   reporter_name: string;
@@ -47,9 +53,7 @@ function App() {
   const [screen, setScreen] =
     useState<Screen>("home");
 
-  /* ============================
-     MODAL
-     ============================ */
+  /* MODAL */
 
   const [modal, setModal] =
     useState<ModalState>({
@@ -82,9 +86,7 @@ function App() {
     }));
   };
 
-  /* ============================
-     NAHLÁSENIE
-     ============================ */
+  /* NAHLÁSENIE */
 
   const [reporter, setReporter] =
     useState("");
@@ -101,12 +103,12 @@ function App() {
   const [photoName, setPhotoName] =
     useState("");
 
-  const [reportLoading, setReportLoading] =
-    useState(false);
+  const [
+    reportLoading,
+    setReportLoading,
+  ] = useState(false);
 
-  /* ============================
-     ÚDRŽBA
-     ============================ */
+  /* ÚDRŽBA */
 
   const [
     maintenanceName,
@@ -150,9 +152,27 @@ function App() {
     setActionLoading,
   ] = useState(false);
 
-  /* ============================
-     PHOTO URL
-     ============================ */
+  /* AKCIA */
+
+  const [
+    actionMode,
+    setActionMode,
+  ] = useState<ActionMode>(null);
+
+  const [
+    actionComment,
+    setActionComment,
+  ] = useState("");
+
+  const [
+    actionPhoto,
+    setActionPhoto,
+  ] = useState<File | null>(null);
+
+  const [
+    actionPhotoName,
+    setActionPhotoName,
+  ] = useState("");
 
   const getPhotoUrl = (
     key: string | null
@@ -164,9 +184,7 @@ function App() {
     )}`;
   };
 
-  /* ============================
-     NAČÍTANIE ZÁVAD
-     ============================ */
+  /* NAČÍTANIE */
 
   const loadIssues = async () => {
     try {
@@ -208,9 +226,7 @@ function App() {
     }
   };
 
-  /* ============================
-     ODOSLANIE ZÁVADY
-     ============================ */
+  /* NOVÁ ZÁVADA */
 
   const submitReport = async (
     e: React.FormEvent
@@ -309,9 +325,7 @@ function App() {
     setScreen("home");
   };
 
-  /* ============================
-     LOGIN
-     ============================ */
+  /* LOGIN */
 
   const loginMaintenance =
     async (
@@ -370,9 +384,7 @@ function App() {
       setScreen("home");
     };
 
-  /* ============================
-     DETAIL
-     ============================ */
+  /* DETAIL */
 
   const openIssue = (
     issue: Issue
@@ -383,6 +395,8 @@ function App() {
       "maintenance-issue"
     );
   };
+
+  /* PREVZATIE */
 
   const takeIssue = async () => {
     if (!selectedIssue) return;
@@ -419,7 +433,7 @@ function App() {
           "error",
           "Závadu sa nepodarilo prevziať",
           data.error ||
-            "Skúste obnoviť zoznam závad."
+            "Skúste obnoviť zoznam."
         );
 
         await loadIssues();
@@ -450,16 +464,198 @@ function App() {
       showModal(
         "error",
         "Nastala chyba",
-        "Pri preberaní závady sa nepodarilo spojiť so serverom."
+        "Nepodarilo sa spojiť so serverom."
       );
     } finally {
       setActionLoading(false);
     }
   };
 
-  /* ============================
-     FILTRE
-     ============================ */
+  /* OTVORENIE AKCIE */
+
+  const openAction = (
+    mode: ActionMode
+  ) => {
+    setActionComment("");
+    setActionPhoto(null);
+    setActionPhotoName("");
+    setActionMode(mode);
+  };
+
+  const closeAction = () => {
+    setActionMode(null);
+    setActionComment("");
+    setActionPhoto(null);
+    setActionPhotoName("");
+  };
+
+  /* ODOSLANIE AKCIE */
+
+  const submitAction =
+    async () => {
+      if (
+        !selectedIssue ||
+        !actionMode
+      ) {
+        return;
+      }
+
+      if (
+        !actionComment.trim()
+      ) {
+        showModal(
+          "error",
+          "Chýba komentár",
+          "Napíšte stručne, čo bolo vykonané alebo čo je potrebné."
+        );
+
+        return;
+      }
+
+      let targetStatus = "";
+
+      if (
+        actionMode ===
+        "resolve"
+      ) {
+        targetStatus = "closed";
+      }
+
+      if (
+        actionMode ===
+        "material"
+      ) {
+        targetStatus =
+          "material";
+      }
+
+      if (
+        actionMode ===
+        "manager"
+      ) {
+        targetStatus =
+          "manager";
+      }
+
+      try {
+        setActionLoading(true);
+
+        const formData =
+          new FormData();
+
+        formData.append(
+          "worker_name",
+          loggedMaintenanceName
+        );
+
+        formData.append(
+          "status",
+          targetStatus
+        );
+
+        formData.append(
+          "message",
+          actionComment.trim()
+        );
+
+        if (actionPhoto) {
+          formData.append(
+            "photo",
+            actionPhoto,
+            actionPhoto.name
+          );
+        }
+
+        const response =
+          await fetch(
+            `/api/issues/${selectedIssue.id}/status`,
+            {
+              method: "POST",
+              body: formData,
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (
+          !response.ok ||
+          !data.success
+        ) {
+          showModal(
+            "error",
+            "Akciu sa nepodarilo uložiť",
+            data.error ||
+              "Skúste to znova."
+          );
+
+          return;
+        }
+
+        setSelectedIssue(
+          data.issue
+        );
+
+        await loadIssues();
+
+        closeAction();
+
+        if (
+          targetStatus ===
+          "closed"
+        ) {
+          showModal(
+            "success",
+            "Závada bola vyriešená",
+            `Závada #${String(
+              selectedIssue.id
+            ).padStart(
+              4,
+              "0"
+            )} bola úspešne uzavretá.`,
+            actionPhoto
+              ? "Fotografia po oprave bola uložená."
+              : `Vyriešil: ${loggedMaintenanceName}`
+          );
+        }
+
+        if (
+          targetStatus ===
+          "material"
+        ) {
+          showModal(
+            "success",
+            "Čaká na materiál",
+            "Požiadavka bola uložená.",
+            `Zapísal: ${loggedMaintenanceName}`
+          );
+        }
+
+        if (
+          targetStatus ===
+          "manager"
+        ) {
+          showModal(
+            "success",
+            "Posunuté vedúcemu",
+            "Závada bola odoslaná vedúcemu údržby.",
+            `Odoslal: ${loggedMaintenanceName}`
+          );
+        }
+      } catch (error) {
+        console.error(error);
+
+        showModal(
+          "error",
+          "Nastala chyba",
+          "Nepodarilo sa spojiť so serverom."
+        );
+      } finally {
+        setActionLoading(false);
+      }
+    };
+
+  /* FILTRE */
 
   const filteredIssues =
     issues.filter(
@@ -508,9 +704,7 @@ function App() {
       "Posunuté vedúcemu",
   };
 
-  /* ============================
-     DÁTUM
-     ============================ */
+  /* DÁTUM */
 
   const formatDate = (
     dateValue: string
@@ -586,9 +780,7 @@ function App() {
     }
   };
 
-  /* ============================
-     MODAL
-     ============================ */
+  /* HLAVNÝ MODAL */
 
   const modalWindow =
     modal.visible ? (
@@ -618,9 +810,13 @@ function App() {
             TATRALANDIA • ÚDRŽBA
           </div>
 
-          <h2>{modal.title}</h2>
+          <h2>
+            {modal.title}
+          </h2>
 
-          <p>{modal.message}</p>
+          <p>
+            {modal.message}
+          </p>
 
           {modal.detail && (
             <div className="custom-modal-detail">
@@ -638,9 +834,153 @@ function App() {
       </div>
     ) : null;
 
-  /* ============================
-     DETAIL ZÁVADY
-     ============================ */
+  /* AKČNÉ OKNO */
+
+  const actionWindow =
+    actionMode ? (
+      <div className="action-overlay">
+        <div className="action-dialog">
+
+          <div className="action-handle"></div>
+
+          <div className="action-dialog-icon">
+            {actionMode ===
+            "resolve"
+              ? "✅"
+              : actionMode ===
+                "material"
+              ? "📦"
+              : "➡️"}
+          </div>
+
+          <h2>
+            {actionMode ===
+            "resolve"
+              ? "Vyriešiť závadu"
+              : actionMode ===
+                "material"
+              ? "Čaká na materiál"
+              : "Posunúť vedúcemu"}
+          </h2>
+
+          <p>
+            {actionMode ===
+            "resolve"
+              ? "Napíšte, čo bolo opravené. Môžete priložiť fotografiu po oprave."
+              : actionMode ===
+                "material"
+              ? "Napíšte, aký materiál alebo náhradný diel je potrebný."
+              : "Napíšte dôvod, prečo závadu posúvate vedúcemu údržby."}
+          </p>
+
+          <label className="action-label">
+            Komentár
+            <textarea
+              value={
+                actionComment
+              }
+              onChange={(e) =>
+                setActionComment(
+                  e.target.value
+                )
+              }
+              placeholder={
+                actionMode ===
+                "resolve"
+                  ? "Napr. vymenené tesnenie, závada odstránená..."
+                  : actionMode ===
+                    "material"
+                  ? "Napr. potrebujeme ventil DN50..."
+                  : "Popíšte problém alebo požiadavku..."
+              }
+              rows={4}
+            />
+          </label>
+
+          <label className="action-photo-upload">
+            <span className="action-camera">
+              📷
+            </span>
+
+            <div>
+              <strong>
+                {actionMode ===
+                "resolve"
+                  ? "Fotografia po oprave"
+                  : "Priložiť fotografiu"}
+              </strong>
+
+              <small>
+                Odfotiť alebo vybrať
+              </small>
+            </div>
+
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={(e) => {
+                const file =
+                  e.target
+                    .files?.[0] ||
+                  null;
+
+                setActionPhoto(
+                  file
+                );
+
+                setActionPhotoName(
+                  file?.name ||
+                    ""
+                );
+              }}
+            />
+          </label>
+
+          {actionPhotoName && (
+            <div className="action-photo-selected">
+              ✓{" "}
+              {actionPhotoName}
+            </div>
+          )}
+
+          <button
+            className="action-confirm-button"
+            onClick={
+              submitAction
+            }
+            disabled={
+              actionLoading
+            }
+          >
+            {actionLoading
+              ? "Ukladám..."
+              : actionMode ===
+                "resolve"
+              ? "✅ Potvrdiť vyriešenie"
+              : actionMode ===
+                "material"
+              ? "📦 Uložiť požiadavku"
+              : "➡️ Posunúť vedúcemu"}
+          </button>
+
+          <button
+            className="action-cancel-button"
+            onClick={
+              closeAction
+            }
+            disabled={
+              actionLoading
+            }
+          >
+            Zrušiť
+          </button>
+
+        </div>
+      </div>
+    ) : null;
+
+  /* DETAIL */
 
   if (
     screen ===
@@ -650,8 +990,11 @@ function App() {
     return (
       <>
         <main className="app-shell">
+
           <section className="app-card issue-detail-card">
+
             <div className="top-bar">
+
               <button
                 className="back-button"
                 onClick={() =>
@@ -670,6 +1013,7 @@ function App() {
                 alt="Tatralandia"
                 className="small-logo"
               />
+
             </div>
 
             <div className="issue-detail-number">
@@ -697,6 +1041,7 @@ function App() {
             </h1>
 
             <div className="issue-detail-box">
+
               <div className="detail-row">
                 <span className="detail-icon">
                   📍
@@ -750,9 +1095,11 @@ function App() {
                   </strong>
                 </div>
               </div>
+
             </div>
 
             <div className="detail-description">
+
               <small>
                 POPIS ZÁVADY
               </small>
@@ -762,9 +1109,11 @@ function App() {
                   selectedIssue.description
                 }
               </p>
+
             </div>
 
             {selectedIssue.photo_key ? (
+
               <img
                 src={getPhotoUrl(
                   selectedIssue.photo_key
@@ -772,19 +1121,27 @@ function App() {
                 alt="Fotografia závady"
                 className="detail-photo"
               />
+
             ) : (
+
               <div className="detail-photo-placeholder">
-                <span>📷</span>
+
+                <span>
+                  📷
+                </span>
 
                 <strong>
                   Fotografia nebola
                   priložená
                 </strong>
+
               </div>
+
             )}
 
             {selectedIssue.status ===
               "new" && (
+
               <button
                 className="take-issue-button"
                 onClick={takeIssue}
@@ -796,57 +1153,185 @@ function App() {
                   ? "Preberám..."
                   : "🔧 Prevziať závadu"}
               </button>
+
             )}
 
             {selectedIssue.status ===
               "progress" && (
-              <div className="issue-being-solved">
-                <div className="issue-being-solved-icon">
-                  🔧
+              <>
+                <div className="issue-being-solved">
+
+                  <div className="issue-being-solved-icon">
+                    🔧
+                  </div>
+
+                  <div>
+                    <small>
+                      ZÁVADA JE V RIEŠENÍ
+                    </small>
+
+                    <strong>
+                      Prevzal:{" "}
+                      {selectedIssue.current_worker_name ||
+                        "Údržba"}
+                    </strong>
+                  </div>
+
                 </div>
+
+                <div className="issue-actions-title">
+                  ČO CHCETE UROBIŤ?
+                </div>
+
+                <div className="issue-action-buttons">
+
+                  <button
+                    className="issue-action-button action-resolve"
+                    onClick={() =>
+                      openAction(
+                        "resolve"
+                      )
+                    }
+                  >
+                    <span>
+                      ✅
+                    </span>
+
+                    <div>
+                      <strong>
+                        Vyriešené
+                      </strong>
+
+                      <small>
+                        Uzavrieť závadu
+                      </small>
+                    </div>
+                  </button>
+
+                  <button
+                    className="issue-action-button action-material"
+                    onClick={() =>
+                      openAction(
+                        "material"
+                      )
+                    }
+                  >
+                    <span>
+                      📦
+                    </span>
+
+                    <div>
+                      <strong>
+                        Čaká na materiál
+                      </strong>
+
+                      <small>
+                        Potrebujem diel
+                      </small>
+                    </div>
+                  </button>
+
+                  <button
+                    className="issue-action-button action-manager"
+                    onClick={() =>
+                      openAction(
+                        "manager"
+                      )
+                    }
+                  >
+                    <span>
+                      ➡️
+                    </span>
+
+                    <div>
+                      <strong>
+                        Posunúť vedúcemu
+                      </strong>
+
+                      <small>
+                        Potrebujem pomoc
+                      </small>
+                    </div>
+                  </button>
+
+                </div>
+              </>
+            )}
+
+            {selectedIssue.status ===
+              "closed" && (
+
+              <div className="resolved-info">
+                <span>
+                  ✓
+                </span>
 
                 <div>
                   <small>
-                    ZÁVADA JE V RIEŠENÍ
+                    ZÁVADA UKONČENÁ
                   </small>
 
                   <strong>
-                    Prevzal:{" "}
-                    {selectedIssue.current_worker_name ||
+                    Vyriešil:{" "}
+                    {selectedIssue.last_actor_name ||
                       "Údržba"}
                   </strong>
                 </div>
               </div>
+
             )}
 
             <button
               className="detail-back-button"
               onClick={() => {
-                setMaintenanceFilter(
+
+                if (
                   selectedIssue.status ===
+                  "progress"
+                ) {
+                  setMaintenanceFilter(
                     "progress"
-                    ? "progress"
-                    : "new"
-                );
+                  );
+                } else if (
+                  selectedIssue.status ===
+                  "material"
+                ) {
+                  setMaintenanceFilter(
+                    "material"
+                  );
+                } else if (
+                  selectedIssue.status ===
+                  "manager"
+                ) {
+                  setMaintenanceFilter(
+                    "manager"
+                  );
+                } else {
+                  setMaintenanceFilter(
+                    "new"
+                  );
+                }
 
                 setScreen(
                   "maintenance-dashboard"
                 );
+
               }}
             >
               Späť na prehľad
             </button>
+
           </section>
+
         </main>
 
         {modalWindow}
+        {actionWindow}
       </>
     );
   }
 
-  /* ============================
-     DASHBOARD
-     ============================ */
+  /* DASHBOARD */
 
   if (
     screen ===
@@ -855,8 +1340,11 @@ function App() {
     return (
       <>
         <main className="app-shell">
+
           <section className="app-card dashboard-card">
+
             <div className="dashboard-header">
+
               <img
                 src={
                   tatralandiaLogo
@@ -873,9 +1361,11 @@ function App() {
               >
                 Odhlásiť
               </button>
+
             </div>
 
             <div className="welcome-block">
+
               <div>
                 <span>
                   PRIHLÁSENÝ ÚDRŽBÁR
@@ -891,10 +1381,13 @@ function App() {
               <div className="worker-avatar">
                 🔧
               </div>
+
             </div>
 
             <div className="dashboard-title-row">
+
               <div>
+
                 <div className="section-label">
                   PREHĽAD ÚDRŽBY
                 </div>
@@ -902,30 +1395,37 @@ function App() {
                 <h1>
                   Závady
                 </h1>
+
               </div>
 
               <button
                 className="notification-bell"
                 onClick={async () => {
+
                   setMaintenanceFilter(
                     "new"
                   );
 
                   await loadIssues();
+
                 }}
               >
                 🔔
 
                 {newCount >
                   0 && (
+
                   <span>
                     {newCount}
                   </span>
+
                 )}
               </button>
+
             </div>
 
             <div className="stats-grid">
+
               <button
                 className={`stat-card ${
                   maintenanceFilter ===
@@ -1029,10 +1529,13 @@ function App() {
                   Posunuté ďalej
                 </small>
               </button>
+
             </div>
 
             <div className="dashboard-section">
+
               <div className="dashboard-section-heading">
+
                 <strong>
                   {
                     filterTitle[
@@ -1047,23 +1550,29 @@ function App() {
                   }{" "}
                   položiek
                 </span>
+
               </div>
 
               <div className="issue-list">
+
                 {issuesLoading ? (
+
                   <div className="loading-box">
                     Načítavam závady...
                   </div>
+
                 ) : filteredIssues.length ===
                   0 ? (
+
                   <div className="empty-box">
-                    V tejto kategórii
-                    momentálne nie sú
-                    žiadne závady.
+                    V tejto kategórii momentálne nie sú žiadne závady.
                   </div>
+
                 ) : (
+
                   filteredIssues.map(
                     (issue) => (
+
                       <button
                         className="issue-card-new"
                         key={
@@ -1075,8 +1584,11 @@ function App() {
                           )
                         }
                       >
+
                         <div className="issue-main">
+
                           <div className="issue-top">
+
                             <strong>
                               #
                               {String(
@@ -1092,6 +1604,7 @@ function App() {
                                 issue.created_at
                               )}
                             </span>
+
                           </div>
 
                           <h3>
@@ -1115,9 +1628,11 @@ function App() {
                               }
                             </strong>
                           </div>
+
                         </div>
 
                         {issue.photo_key ? (
+
                           <img
                             src={getPhotoUrl(
                               issue.photo_key
@@ -1125,8 +1640,11 @@ function App() {
                             alt="Fotografia závady"
                             className="issue-photo"
                           />
+
                         ) : (
+
                           <div className="issue-no-photo">
+
                             <span>
                               📷
                             </span>
@@ -1134,20 +1652,28 @@ function App() {
                             <small>
                               bez fotky
                             </small>
+
                           </div>
+
                         )}
 
                         <div className="issue-arrow">
                           ›
                         </div>
+
                       </button>
+
                     )
                   )
+
                 )}
+
               </div>
+
             </div>
 
             <div className="maintenance-bottom-menu">
+
               <button className="bottom-menu-active">
                 <span>
                   🔧
@@ -1161,8 +1687,11 @@ function App() {
                 </span>
                 História
               </button>
+
             </div>
+
           </section>
+
         </main>
 
         {modalWindow}
@@ -1170,9 +1699,7 @@ function App() {
     );
   }
 
-  /* ============================
-     LOGIN
-     ============================ */
+  /* LOGIN */
 
   if (
     screen ===
@@ -1181,8 +1708,11 @@ function App() {
     return (
       <>
         <main className="app-shell">
+
           <section className="app-card login-card">
+
             <div className="top-bar">
+
               <button
                 className="back-button"
                 onClick={() =>
@@ -1201,6 +1731,7 @@ function App() {
                 alt="Tatralandia"
                 className="small-logo"
               />
+
             </div>
 
             <div className="login-icon-big">
@@ -1216,8 +1747,7 @@ function App() {
             </h1>
 
             <p className="subtitle">
-              Zadajte svoje meno a
-              spoločné heslo údržby.
+              Zadajte svoje meno a spoločné heslo údržby.
             </p>
 
             <form
@@ -1226,6 +1756,7 @@ function App() {
                 loginMaintenance
               }
             >
+
               <label>
                 Vaše meno
 
@@ -1237,8 +1768,7 @@ function App() {
                   }
                   onChange={(e) =>
                     setMaintenanceName(
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
                 />
@@ -1256,8 +1786,7 @@ function App() {
                   }
                   onChange={(e) =>
                     setMaintenancePassword(
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
                 />
@@ -1269,6 +1798,7 @@ function App() {
               >
                 🔧 Prihlásiť sa
               </button>
+
             </form>
 
             <div className="test-password">
@@ -1277,7 +1807,9 @@ function App() {
                 test1234
               </strong>
             </div>
+
           </section>
+
         </main>
 
         {modalWindow}
@@ -1285,16 +1817,19 @@ function App() {
     );
   }
 
-  /* ============================
-     FORMULÁR
-     ============================ */
+  /* REPORT */
 
-  if (screen === "report") {
+  if (
+    screen === "report"
+  ) {
     return (
       <>
         <main className="app-shell">
+
           <section className="app-card">
+
             <div className="top-bar">
+
               <button
                 className="back-button"
                 onClick={() =>
@@ -1313,6 +1848,7 @@ function App() {
                 alt="Tatralandia"
                 className="small-logo"
               />
+
             </div>
 
             <div className="section-badge">
@@ -1324,16 +1860,16 @@ function App() {
             </h1>
 
             <p className="subtitle">
-              Vyplňte základné
-              informácie. Hlásenie
-              bude odoslané priamo
-              údržbe.
+              Vyplňte základné informácie. Hlásenie bude odoslané priamo údržbe.
             </p>
 
             <form
               className="report-form"
-              onSubmit={submitReport}
+              onSubmit={
+                submitReport
+              }
             >
+
               <label>
                 Kto nahlasuje?
 
@@ -1345,16 +1881,14 @@ function App() {
                   }
                   onChange={(e) =>
                     setReporter(
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
                 />
               </label>
 
               <label>
-                Kde sa závada
-                nachádza?
+                Kde sa závada nachádza?
 
                 <input
                   type="text"
@@ -1364,8 +1898,7 @@ function App() {
                   }
                   onChange={(e) =>
                     setLocation(
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
                 />
@@ -1381,8 +1914,7 @@ function App() {
                   }
                   onChange={(e) =>
                     setDescription(
-                      e.target
-                        .value
+                      e.target.value
                     )
                   }
                   rows={5}
@@ -1390,20 +1922,18 @@ function App() {
               </label>
 
               <label className="photo-upload">
+
                 <div className="photo-icon">
                   📷
                 </div>
 
                 <div>
                   <strong>
-                    Pridať
-                    fotografiu
+                    Pridať fotografiu
                   </strong>
 
                   <span>
-                    Odfotiť závadu
-                    alebo vybrať
-                    fotografiu
+                    Odfotiť závadu alebo vybrať fotografiu
                   </span>
                 </div>
 
@@ -1412,9 +1942,9 @@ function App() {
                   accept="image/*"
                   capture="environment"
                   onChange={(e) => {
+
                     const file =
-                      e.target
-                        .files?.[0] ||
+                      e.target.files?.[0] ||
                       null;
 
                     setPhotoFile(
@@ -1425,16 +1955,19 @@ function App() {
                       file?.name ||
                         ""
                     );
+
                   }}
                 />
+
               </label>
 
               {photoName && (
+
                 <div className="photo-selected">
-                  ✓ Fotografia
-                  vybraná:{" "}
+                  ✓ Fotografia vybraná:{" "}
                   {photoName}
                 </div>
+
               )}
 
               <button
@@ -1448,8 +1981,11 @@ function App() {
                   ? "Odosielam..."
                   : "⚠️ Odoslať závadu"}
               </button>
+
             </form>
+
           </section>
+
         </main>
 
         {modalWindow}
@@ -1457,16 +1993,16 @@ function App() {
     );
   }
 
-  /* ============================
-     SUCCESS
-     ============================ */
+  /* SUCCESS */
 
   if (
     screen === "success"
   ) {
     return (
       <main className="app-shell">
+
         <section className="app-card success-card">
+
           <img
             src={
               tatralandiaLogo
@@ -1484,31 +2020,34 @@ function App() {
           </h1>
 
           <p>
-            Závada bola úspešne
-            nahlásená a odoslaná
-            údržbe na riešenie.
+            Závada bola úspešne nahlásená a odoslaná údržbe na riešenie.
           </p>
 
           <button
             className="submit-button"
-            onClick={resetReport}
+            onClick={
+              resetReport
+            }
           >
             Späť na úvod
           </button>
+
         </section>
+
       </main>
     );
   }
 
-  /* ============================
-     HOME
-     ============================ */
+  /* HOME */
 
   return (
     <>
       <main className="app-shell home-shell">
+
         <section className="app-card home-card">
+
           <div className="brand-area">
+
             <img
               src={
                 tatralandiaLogo
@@ -1520,6 +2059,7 @@ function App() {
             <div className="brand-description">
               INTERNÝ SYSTÉM ÚDRŽBY
             </div>
+
           </div>
 
           <button
@@ -1530,24 +2070,27 @@ function App() {
               )
             }
           >
+
             <div className="report-button-icon">
               ⚠️
             </div>
 
             <div className="report-button-content">
+
               <strong>
                 Nahlásiť závadu
               </strong>
 
               <span>
-                Odoslať nové
-                hlásenie údržbe
+                Odoslať nové hlásenie údržbe
               </span>
+
             </div>
 
             <div className="arrow">
               ›
             </div>
+
           </button>
 
           <div className="employee-login-title">
@@ -1555,6 +2098,7 @@ function App() {
           </div>
 
           <div className="role-buttons">
+
             <button
               className="role-button"
               onClick={() =>
@@ -1563,6 +2107,7 @@ function App() {
                 )
               }
             >
+
               <div className="role-icon">
                 🔧
               </div>
@@ -1573,15 +2118,14 @@ function App() {
                 </strong>
 
                 <span>
-                  Nové a
-                  rozpracované
-                  závady
+                  Nové a rozpracované závady
                 </span>
               </div>
 
               <div className="role-arrow">
                 ›
               </div>
+
             </button>
 
             <button
@@ -1594,6 +2138,7 @@ function App() {
                 )
               }
             >
+
               <div className="role-icon">
                 🛠️
               </div>
@@ -1604,14 +2149,14 @@ function App() {
                 </strong>
 
                 <span>
-                  Riadenie úloh
-                  a štatistika
+                  Riadenie úloh a štatistika
                 </span>
               </div>
 
               <div className="role-arrow">
                 ›
               </div>
+
             </button>
 
             <button
@@ -1624,33 +2169,35 @@ function App() {
                 )
               }
             >
+
               <div className="role-icon">
                 📊
               </div>
 
               <div>
                 <strong>
-                  Prevádzkový
-                  manažér
+                  Prevádzkový manažér
                 </strong>
 
                 <span>
-                  Kompletný prehľad
-                  a riadenie
+                  Kompletný prehľad a riadenie
                 </span>
               </div>
 
               <div className="role-arrow">
                 ›
               </div>
+
             </button>
+
           </div>
 
           <div className="footer-line">
-            Tatralandia • interný
-            systém hlásenia závad
+            Tatralandia • interný systém hlásenia závad
           </div>
+
         </section>
+
       </main>
 
       {modalWindow}
