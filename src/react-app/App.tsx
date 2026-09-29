@@ -2809,6 +2809,12 @@ function App() {
         ].includes(event.event_type) && Boolean(event.message || event.photo_key)
     );
 
+    const ratedWorkerName = getMaintenanceWorkerFromEvents(issueEvents);
+    const issueRatings = issueEvents.filter((event) =>
+      ["rating_up", "rating_down"].includes(event.event_type)
+    );
+    const latestRating = issueRatings[0];
+
     return (
       <>
         <main className="app-shell">
@@ -2902,6 +2908,89 @@ function App() {
                   </button>
                 </div>
               </>
+            )}
+
+            {selectedIssue.status === "closed" && (
+              <div className="repair-rating-panel rating-live-panel">
+                <div className="issue-actions-title">HODNOTENIE OPRAVY</div>
+
+                <div className={`rating-status-badge ${
+                  latestRating?.event_type === "rating_up"
+                    ? "rating-status-up"
+                    : latestRating?.event_type === "rating_down"
+                    ? "rating-status-down"
+                    : "rating-status-empty"
+                }`}>
+                  {latestRating?.event_type === "rating_up"
+                    ? "👍 Pozitívne hodnotenie"
+                    : latestRating?.event_type === "rating_down"
+                    ? "👎 Negatívne hodnotenie"
+                    : "○ Nehodnotené"}
+                </div>
+
+                {issueRatings.length > 0 && (
+                  <div className="rating-given-list">
+                    {issueRatings.map((event) => (
+                      <div className="rating-given-item" key={event.id}>
+                        <span className={event.event_type === "rating_up" ? "rating-thumb-up" : "rating-thumb-down"}>
+                          {event.event_type === "rating_up" ? "👍" : "👎"}
+                        </span>
+                        <div>
+                          <strong>{event.actor_name || "Hodnotiteľ"}</strong>
+                          <small>{formatDate(event.created_at)}</small>
+                          {event.message && <p>{event.message}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {ratedWorkerName ? (
+                  <div className="rating-entry-box">
+                    <div className="rating-worker-line">
+                      Hodnotený údržbár: <strong>{ratedWorkerName}</strong>
+                    </div>
+                    <div className="rating-choice-row">
+                      <button
+                        type="button"
+                        className={`rating-choice-button rating-up ${ratingChoice === "up" ? "rating-choice-active" : ""}`}
+                        onClick={() => setRatingChoice("up")}
+                      >
+                        👍 Palec hore
+                      </button>
+                      <button
+                        type="button"
+                        className={`rating-choice-button rating-down ${ratingChoice === "down" ? "rating-choice-active" : ""}`}
+                        onClick={() => setRatingChoice("down")}
+                      >
+                        👎 Palec dole
+                      </button>
+                    </div>
+                    <textarea
+                      className="rating-comment"
+                      value={ratingComment}
+                      onChange={(e) => setRatingComment(e.target.value)}
+                      placeholder="Voliteľný komentár k hodnoteniu..."
+                      rows={3}
+                    />
+                    <button
+                      type="button"
+                      className="rating-save-button"
+                      disabled={!ratingChoice || actionLoading}
+                      onClick={() => {
+                        if (!ratingChoice) return;
+                        submitRating(ratingChoice, "operations_manager", loggedOperationsName);
+                      }}
+                    >
+                      {actionLoading ? "Ukladám..." : "Uložiť hodnotenie"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rating-worker-missing">
+                    Pri tejto závade sa nepodarilo nájsť údržbára, ktorý ju riešil.
+                  </div>
+                )}
+              </div>
             )}
 
             {selectedIssue.status === "closed" && (
@@ -3761,6 +3850,16 @@ function App() {
           )
       );
 
+    const ratedWorkerName =
+      getMaintenanceWorkerFromEvents(issueEvents);
+    const issueRatings = issueEvents.filter(
+      (event) =>
+        ["rating_up", "rating_down"].includes(
+          event.event_type
+        )
+    );
+    const latestRating = issueRatings[0];
+
     return (
       <>
         <main className="app-shell">
@@ -4001,6 +4100,92 @@ function App() {
                   </strong>
                 </div>
 
+              </div>
+            )}
+
+            {selectedIssue.status ===
+              "closed" && (
+              <div className="repair-rating-panel rating-live-panel">
+                <div className="issue-actions-title">
+                  HODNOTENIE OPRAVY
+                </div>
+
+                <div className={`rating-status-badge ${
+                  latestRating?.event_type === "rating_up"
+                    ? "rating-status-up"
+                    : latestRating?.event_type === "rating_down"
+                    ? "rating-status-down"
+                    : "rating-status-empty"
+                }`}>
+                  {latestRating?.event_type === "rating_up"
+                    ? "👍 Pozitívne hodnotenie"
+                    : latestRating?.event_type === "rating_down"
+                    ? "👎 Negatívne hodnotenie"
+                    : "○ Nehodnotené"}
+                </div>
+
+                {issueRatings.length > 0 && (
+                  <div className="rating-given-list">
+                    {issueRatings.map((event) => (
+                      <div className="rating-given-item" key={event.id}>
+                        <span className={event.event_type === "rating_up" ? "rating-thumb-up" : "rating-thumb-down"}>
+                          {event.event_type === "rating_up" ? "👍" : "👎"}
+                        </span>
+                        <div>
+                          <strong>{event.actor_name || "Hodnotiteľ"}</strong>
+                          <small>{formatDate(event.created_at)}</small>
+                          {event.message && <p>{event.message}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {ratedWorkerName ? (
+                  <div className="rating-entry-box">
+                    <div className="rating-worker-line">
+                      Hodnotený údržbár: <strong>{ratedWorkerName}</strong>
+                    </div>
+                    <div className="rating-choice-row">
+                      <button
+                        type="button"
+                        className={`rating-choice-button rating-up ${ratingChoice === "up" ? "rating-choice-active" : ""}`}
+                        onClick={() => setRatingChoice("up")}
+                      >
+                        👍 Palec hore
+                      </button>
+                      <button
+                        type="button"
+                        className={`rating-choice-button rating-down ${ratingChoice === "down" ? "rating-choice-active" : ""}`}
+                        onClick={() => setRatingChoice("down")}
+                      >
+                        👎 Palec dole
+                      </button>
+                    </div>
+                    <textarea
+                      className="rating-comment"
+                      value={ratingComment}
+                      onChange={(e) => setRatingComment(e.target.value)}
+                      placeholder="Voliteľný komentár k hodnoteniu..."
+                      rows={3}
+                    />
+                    <button
+                      type="button"
+                      className="rating-save-button"
+                      disabled={!ratingChoice || actionLoading}
+                      onClick={() => {
+                        if (!ratingChoice) return;
+                        submitRating(ratingChoice, "maintenance_manager", loggedManagerName);
+                      }}
+                    >
+                      {actionLoading ? "Ukladám..." : "Uložiť hodnotenie"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rating-worker-missing">
+                    Pri tejto závade sa nepodarilo nájsť údržbára, ktorý ju riešil.
+                  </div>
+                )}
               </div>
             )}
 
