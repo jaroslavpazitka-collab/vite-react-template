@@ -780,6 +780,9 @@ function App() {
         setSelectedIssue(data.issue);
 
         await loadIssues();
+        await loadIssueEvents(
+          selectedIssue.id
+        );
 
         closeMaintenanceAction();
 
@@ -929,6 +932,9 @@ function App() {
         setSelectedIssue(data.issue);
 
         await loadIssues();
+        await loadIssueEvents(
+          selectedIssue.id
+        );
 
         closeManagerAction();
 
@@ -1124,6 +1130,81 @@ function App() {
         return "•";
     }
   };
+
+  const renderCommunicationSection = (
+    events: IssueEvent[]
+  ) => (
+    <div className="issue-communication-section">
+      <div className="issue-actions-title">
+        KOMUNIKÁCIA K ZÁVADE
+      </div>
+
+      {historyLoading ? (
+        <div className="communication-empty">
+          Načítavam komunikáciu...
+        </div>
+      ) : events.length === 0 ? (
+        <div className="communication-empty">
+          K tejto závade zatiaľ nie je žiadny odovzdaný komentár.
+        </div>
+      ) : (
+        <div className="communication-list">
+          {events.map((event) => (
+            <div
+              className="communication-card"
+              key={event.id}
+            >
+              <div className="communication-card-head">
+                <div className="communication-card-title">
+                  <span className="communication-card-icon">
+                    {eventIcon(
+                      event.event_type
+                    )}
+                  </span>
+
+                  <div>
+                    <strong>
+                      {eventLabel(
+                        event.event_type
+                      )}
+                    </strong>
+
+                    {event.actor_name && (
+                      <small>
+                        {event.actor_name}
+                      </small>
+                    )}
+                  </div>
+                </div>
+
+                <span className="communication-date">
+                  {formatDate(
+                    event.created_at
+                  )}
+                </span>
+              </div>
+
+              {event.message && (
+                <p className="communication-message">
+                  {event.message}
+                </p>
+              )}
+
+              {event.photo_key && (
+                <img
+                  src={getPhotoUrl(
+                    event.photo_key
+                  )}
+                  alt="Fotografia ku komentáru"
+                  className="communication-photo"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 
   /* =========================================================
      FILTRE ÚDRŽBÁRA
@@ -1994,6 +2075,23 @@ function App() {
       selectedIssue.status ===
         "material";
 
+    const communicationEvents =
+      issueEvents.filter(
+        (event) =>
+          [
+            "material_requested",
+            "escalated_to_manager",
+            "returned_to_maintenance",
+            "manager_resolved",
+            "escalated_to_operations",
+            "resolved",
+          ].includes(event.event_type) &&
+          Boolean(
+            event.message ||
+              event.photo_key
+          )
+      );
+
     return (
       <>
         <main className="app-shell">
@@ -2121,6 +2219,10 @@ function App() {
                   Bez fotografie
                 </strong>
               </div>
+            )}
+
+            {renderCommunicationSection(
+              communicationEvents
             )}
 
             {isManagerActionable && (
@@ -2507,13 +2609,19 @@ function App() {
                       <button
                         className="issue-card-new manager-issue-card"
                         key={issue.id}
-                        onClick={() => {
+                        onClick={async () => {
                           setSelectedIssue(
                             issue
                           );
 
+                          setIssueEvents([]);
+
                           setScreen(
                             "manager-issue"
+                          );
+
+                          await loadIssueEvents(
+                            issue.id
                           );
                         }}
                       >
@@ -2926,6 +3034,23 @@ function App() {
       "maintenance-issue" &&
     selectedIssue
   ) {
+    const communicationEvents =
+      issueEvents.filter(
+        (event) =>
+          [
+            "material_requested",
+            "escalated_to_manager",
+            "returned_to_maintenance",
+            "manager_resolved",
+            "escalated_to_operations",
+            "resolved",
+          ].includes(event.event_type) &&
+          Boolean(
+            event.message ||
+              event.photo_key
+          )
+      );
+
     return (
       <>
         <main className="app-shell">
@@ -3036,6 +3161,10 @@ function App() {
                   Bez fotografie
                 </strong>
               </div>
+            )}
+
+            {renderCommunicationSection(
+              communicationEvents
             )}
 
             {selectedIssue.status ===
@@ -3297,13 +3426,19 @@ function App() {
                     <button
                       className="issue-card-new"
                       key={issue.id}
-                      onClick={() => {
+                      onClick={async () => {
                         setSelectedIssue(
                           issue
                         );
 
+                        setIssueEvents([]);
+
                         setScreen(
                           "maintenance-issue"
+                        );
+
+                        await loadIssueEvents(
+                          issue.id
                         );
                       }}
                     >
@@ -3443,6 +3578,11 @@ function App() {
               Prihlásenie údržbára
             </h1>
 
+            <p className="subtitle">
+              Zadajte svoje meno a spoločné
+              heslo údržby.
+            </p>
+
             <form
               className="report-form"
               onSubmit={
@@ -3454,6 +3594,8 @@ function App() {
                 Vaše meno
 
                 <input
+                  type="text"
+                  placeholder="Napr. Jano, Peter, Fero..."
                   value={
                     maintenanceName
                   }
@@ -3469,7 +3611,9 @@ function App() {
                 Heslo údržby
 
                 <input
+                  className="password-input"
                   type="password"
+                  placeholder="Zadajte heslo"
                   value={
                     maintenancePassword
                   }
