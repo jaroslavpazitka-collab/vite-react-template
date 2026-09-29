@@ -22,7 +22,9 @@ function App() {
   const [maintenanceName, setMaintenanceName] = useState("");
   const [maintenancePassword, setMaintenancePassword] = useState("");
   const [loggedMaintenanceName, setLoggedMaintenanceName] = useState("");
-
+const [maintenanceFilter, setMaintenanceFilter] = useState<
+  "new" | "progress" | "material" | "manager"
+>("new");
   const submitReport = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -66,7 +68,109 @@ function App() {
     setLoggedMaintenanceName("");
     setScreen("home");
   };
+const maintenanceIssues = [
+  {
+    id: "0001",
+    status: "new",
+    time: "pred 8 min.",
+    title: "Tečie voda pri sprche",
+    location: "Hala Tropic – pánske sprchy",
+    reporter: "Peter",
+    photo: null,
+  },
+  {
+    id: "0002",
+    status: "new",
+    time: "pred 21 min.",
+    title: "Nesvieti osvetlenie",
+    location: "Chodba pri šatniach",
+    reporter: "Janka",
+    photo: null,
+  },
+  {
+    id: "0003",
+    status: "new",
+    time: "pred 34 min.",
+    title: "Uvoľnené zábradlie",
+    location: "Vonkajší bazén",
+    reporter: "Martin",
+    photo: null,
+  },
+  {
+    id: "0004",
+    status: "progress",
+    time: "dnes 09:02",
+    title: "Pokazený zámok na dverách",
+    location: "Technická chodba",
+    reporter: "Marek",
+    photo: null,
+  },
+  {
+    id: "0005",
+    status: "progress",
+    time: "dnes 08:45",
+    title: "Kvapká ventil",
+    location: "Strojovňa",
+    reporter: "Peter",
+    photo: null,
+  },
+  {
+    id: "0006",
+    status: "progress",
+    time: "dnes 08:15",
+    title: "Poškodená lavička",
+    location: "Šatne",
+    reporter: "Lucia",
+    photo: null,
+  },
+  {
+    id: "0007",
+    status: "progress",
+    time: "včera 18:40",
+    title: "Kontrola čerpadla",
+    location: "Technologická miestnosť",
+    reporter: "Ján",
+    photo: null,
+  },
+  {
+    id: "0008",
+    status: "material",
+    time: "včera 15:20",
+    title: "Výmena poškodeného ventilu",
+    location: "Hala Tropic",
+    reporter: "Milan",
+    photo: null,
+  },
+  {
+    id: "0009",
+    status: "material",
+    time: "včera 14:10",
+    title: "Oprava madla",
+    location: "Schodisko",
+    reporter: "Peter",
+    photo: null,
+  },
+  {
+    id: "0010",
+    status: "manager",
+    time: "včera 11:30",
+    title: "Porucha technologického zariadenia",
+    location: "Strojovňa",
+    reporter: "Jaro",
+    photo: null,
+  },
+];
 
+const filteredIssues = maintenanceIssues.filter(
+  (issue) => issue.status === maintenanceFilter
+);
+
+const filterTitle = {
+  new: "Nové závady",
+  progress: "Rozpracované",
+  material: "Čaká na materiál",
+  manager: "Posunuté vedúcemu",
+}[maintenanceFilter];
   // ============================
   // ÚDRŽBÁR - DASHBOARD
   // ============================
@@ -109,103 +213,84 @@ function App() {
           </div>
 
           <div className="stats-grid">
-            <button className="stat-card stat-new">
-              <span className="stat-number">3</span>
-              <span className="stat-title">Nové závady</span>
-              <small>Čakajú na prevzatie</small>
-            </button>
+  <button
+    className={`stat-card ${maintenanceFilter === "new" ? "stat-active" : ""}`}
+    onClick={() => setMaintenanceFilter("new")}
+  >
+    <span className="stat-number">3</span>
+    <span className="stat-title">Nové závady</span>
+    <small>Čakajú na prevzatie</small>
+  </button>
 
-            <button className="stat-card">
-              <span className="stat-number">4</span>
-              <span className="stat-title">Rozpracované</span>
-              <small>Aktuálne riešené</small>
-            </button>
+  <button
+    className={`stat-card ${maintenanceFilter === "progress" ? "stat-active" : ""}`}
+    onClick={() => setMaintenanceFilter("progress")}
+  >
+    <span className="stat-number">4</span>
+    <span className="stat-title">Rozpracované</span>
+    <small>Aktuálne riešené</small>
+  </button>
 
-            <button className="stat-card">
-              <span className="stat-number">2</span>
-              <span className="stat-title">Čaká na materiál</span>
-              <small>Potrebná súčinnosť</small>
-            </button>
+  <button
+    className={`stat-card ${maintenanceFilter === "material" ? "stat-active" : ""}`}
+    onClick={() => setMaintenanceFilter("material")}
+  >
+    <span className="stat-number">2</span>
+    <span className="stat-title">Čaká na materiál</span>
+    <small>Potrebná súčinnosť</small>
+  </button>
 
-            <button className="stat-card">
-              <span className="stat-number">1</span>
-              <span className="stat-title">U vedúceho</span>
-              <small>Posunuté ďalej</small>
-            </button>
-          </div>
-
+  <button
+    className={`stat-card ${maintenanceFilter === "manager" ? "stat-active" : ""}`}
+    onClick={() => setMaintenanceFilter("manager")}
+  >
+    <span className="stat-number">1</span>
+    <span className="stat-title">U vedúceho</span>
+    <small>Posunuté ďalej</small>
+  </button>
+</div>
           <div className="dashboard-section">
-            <div className="dashboard-section-heading">
-              <strong>🔔 Nové závady</strong>
-              <span>3 nové</span>
-            </div>
+  <div className="dashboard-section-heading">
+    <strong>{filterTitle}</strong>
+    <span>{filteredIssues.length} položiek</span>
+  </div>
 
-            <div className="issue-list">
-              <button className="issue-card">
-                <div className="issue-status-dot"></div>
-
-                <div className="issue-content">
-                  <div className="issue-top">
-                    <strong>#0001</strong>
-                    <span>pred 8 min.</span>
-                  </div>
-
-                  <h3>Tečie voda pri sprche</h3>
-
-                  <p>📍 Hala Tropic – pánske sprchy</p>
-
-                  <div className="issue-reporter">
-                    Nahlásil: Peter
-                  </div>
-                </div>
-
-                <div className="issue-arrow">›</div>
-              </button>
-
-              <button className="issue-card">
-                <div className="issue-status-dot"></div>
-
-                <div className="issue-content">
-                  <div className="issue-top">
-                    <strong>#0002</strong>
-                    <span>pred 21 min.</span>
-                  </div>
-
-                  <h3>Nesvieti osvetlenie</h3>
-
-                  <p>📍 Chodba pri šatniach</p>
-
-                  <div className="issue-reporter">
-                    Nahlásil: Janka
-                  </div>
-                </div>
-
-                <div className="issue-arrow">›</div>
-              </button>
-
-              <button className="issue-card">
-                <div className="issue-status-dot"></div>
-
-                <div className="issue-content">
-                  <div className="issue-top">
-                    <strong>#0003</strong>
-                    <span>pred 34 min.</span>
-                  </div>
-
-                  <h3>Uvoľnené zábradlie</h3>
-
-                  <p>📍 Vonkajší bazén</p>
-
-                  <div className="issue-reporter">
-                    Nahlásil: Martin
-                  </div>
-                </div>
-
-                <div className="issue-arrow">›</div>
-              </button>
-            </div>
+  <div className="issue-list">
+    {filteredIssues.map((issue) => (
+      <button className="issue-card-new" key={issue.id}>
+        <div className="issue-main">
+          <div className="issue-top">
+            <strong>#{issue.id}</strong>
+            <span>{issue.time}</span>
           </div>
 
+          <h3>{issue.title}</h3>
+
+          <p>📍 {issue.location}</p>
+
+          <div className="issue-reporter">
+            Nahlásil: <strong>{issue.reporter}</strong>
+          </div>
+        </div>
+
+        {issue.photo ? (
+          <img
+            src={issue.photo}
+            alt="Fotografia závady"
+            className="issue-photo"
+          />
+        ) : (
+          <div className="issue-no-photo">
+            <span>📷</span>
+            <small>bez fotky</small>
+          </div>
+        )}
+
+        <div className="issue-arrow">›</div>
+      </button>
+    ))}
+  </div>
+</div>
           <div className="maintenance-bottom-menu">
             <button className="bottom-menu-active">
               <span>🔧</span>
