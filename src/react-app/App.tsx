@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Component, useEffect, useState, type ReactNode } from "react";
 import tatralandiaLogo from "./assets/tatralandia-logo.jpg";
 import "./App.css";
 
@@ -111,6 +111,201 @@ type ModalState = {
   detail?: string;
 };
 
+type DuplicateCandidate = {
+  id: number;
+  location: string;
+  description: string;
+  photo_key: string | null;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  score: number;
+};
+
+type MaintenanceMessage = {
+  id: number;
+  sender_name: string;
+  category: string;
+  subject: string;
+  message: string;
+  photo_key: string | null;
+  status: "open" | "resolved" | "converted" | string;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  reply_count?: number;
+};
+
+type MessageReply = {
+  id: number;
+  message_id: number;
+  actor_role: string;
+  actor_name: string;
+  message: string;
+  photo_key: string | null;
+  created_at: string;
+};
+
+type AlertType = "critical" | "outage" | "planned" | "info";
+
+type AlertItem = {
+  id: number;
+  alert_type: AlertType;
+  title: string;
+  location: string;
+  description: string;
+  start_date: string;
+  end_date: string;
+  audiences: string;
+  photo_key: string | null;
+  created_by_role: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+const APP_VERSION = "1.4.0";
+
+class AppErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: unknown) {
+    console.error("Tatralandia UI error:", error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <main className="fatal-screen">
+          <div className="fatal-card">
+            <div className="fatal-icon">!</div>
+            <h1>Aplikáciu sa nepodarilo zobraziť</h1>
+            <p>
+              Skúste aplikáciu obnoviť. Rozpracované údaje v databáze sa tým nezmažú.
+            </p>
+            <button onClick={() => window.location.reload()}>
+              Obnoviť aplikáciu
+            </button>
+            <small>Verzia {APP_VERSION}</small>
+          </div>
+        </main>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+async function fetchWithRetry(
+  input: RequestInfo | URL,
+  init?: RequestInit,
+  timeoutMs = 12000,
+  retries = 1
+) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(input, {
+        ...init,
+        signal: controller.signal,
+      });
+      window.clearTimeout(timer);
+      return response;
+    } catch (error) {
+      window.clearTimeout(timer);
+      lastError = error;
+      if (attempt >= retries) throw error;
+      await new Promise((resolve) => window.setTimeout(resolve, 650));
+    }
+  }
+  throw lastError;
+}
+
+function localDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function calendarCells(monthDate: Date) {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const first = new Date(year, month, 1);
+  const last = new Date(year, month + 1, 0);
+  const mondayOffset = (first.getDay() + 6) % 7;
+  const cells: Array<{ date: Date; inMonth: boolean }> = [];
+  for (let i = mondayOffset - 1; i >= 0; i -= 1) {
+    cells.push({ date: new Date(year, month, -i), inMonth: false });
+  }
+  for (let day = 1; day <= last.getDate(); day += 1) {
+    cells.push({ date: new Date(year, month, day), inMonth: true });
+  }
+  while (cells.length % 7 !== 0) {
+    const lastCell = cells[cells.length - 1].date;
+    cells.push({
+      date: new Date(lastCell.getFullYear(), lastCell.getMonth(), lastCell.getDate() + 1),
+      inMonth: false,
+    });
+  }
+  return cells;
+}
+
+function PhotoChoice({
+  fileName,
+  onFile,
+  title = "Pridať fotografiu",
+}: {
+  fileName: string;
+  onFile: (file: File | null) => void;
+  title?: string;
+}) {
+  const handle = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    onFile(file);
+    event.target.value = "";
+  };
+
+  return (
+    <div className="photo-choice-wrap">
+      <div className="photo-choice-title">{title}</div>
+      <div className="photo-choice-grid">
+        <label className="photo-choice-button camera-choice">
+          <span>📷</span>
+          <strong>Odfotiť teraz</strong>
+          <small>Otvoriť fotoaparát</small>
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handle}
+          />
+        </label>
+        <label className="photo-choice-button gallery-choice">
+          <span>🖼️</span>
+          <strong>Vybrať z galérie</strong>
+          <small>Fotka uložená v mobile</small>
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handle}
+          />
+        </label>
+      </div>
+      {fileName && <div className="photo-selected">✓ {fileName}</div>}
+    </div>
+  );
+}
+
 function App() {
   const [screen, setScreen] =
     useState<Screen>("home");
@@ -204,6 +399,58 @@ function App() {
     actionLoading,
     setActionLoading,
   ] = useState(false);
+
+
+  const [isOnline, setIsOnline] = useState(
+    typeof navigator === "undefined" ? true : navigator.onLine
+  );
+  const [loginLoadingRole, setLoginLoadingRole] = useState<string | null>(null);
+
+  const [duplicateCandidates, setDuplicateCandidates] =
+    useState<DuplicateCandidate[]>([]);
+  const [duplicateWindowOpen, setDuplicateWindowOpen] = useState(false);
+  const [duplicateSubmitting, setDuplicateSubmitting] = useState(false);
+
+  const [messages, setMessages] = useState<MaintenanceMessage[]>([]);
+  const [messageReplies, setMessageReplies] = useState<MessageReply[]>([]);
+  const [messagesPanelRole, setMessagesPanelRole] =
+    useState<"maintenance" | "manager" | null>(null);
+  const [selectedMessage, setSelectedMessage] =
+    useState<MaintenanceMessage | null>(null);
+  const [messageComposerOpen, setMessageComposerOpen] = useState(false);
+  const [messageCategory, setMessageCategory] = useState("nakup");
+  const [messageSubject, setMessageSubject] = useState("");
+  const [messageBody, setMessageBody] = useState("");
+  const [messagePhoto, setMessagePhoto] = useState<File | null>(null);
+  const [messagePhotoName, setMessagePhotoName] = useState("");
+  const [messageReplyText, setMessageReplyText] = useState("");
+  const [messageReplyPhoto, setMessageReplyPhoto] = useState<File | null>(null);
+  const [messageReplyPhotoName, setMessageReplyPhotoName] = useState("");
+  const [messagesLoading, setMessagesLoading] = useState(false);
+
+  const [publicAlerts, setPublicAlerts] = useState<AlertItem[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [alertsPanelOpen, setAlertsPanelOpen] = useState(false);
+  const [alertsAudience, setAlertsAudience] =
+    useState<"public" | "maintenance" | "management">("public");
+  const [alertEditorOpen, setAlertEditorOpen] = useState(false);
+  const [alertType, setAlertType] = useState<AlertType>("critical");
+  const [alertTitle, setAlertTitle] = useState("");
+  const [alertLocation, setAlertLocation] = useState("");
+  const [alertDescription, setAlertDescription] = useState("");
+  const [alertStartDate, setAlertStartDate] = useState("");
+  const [alertEndDate, setAlertEndDate] = useState("");
+  const [alertAudiences, setAlertAudiences] = useState<string[]>([
+    "public",
+    "maintenance",
+    "management",
+  ]);
+  const [alertPhoto, setAlertPhoto] = useState<File | null>(null);
+  const [alertPhotoName, setAlertPhotoName] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(
+    new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  );
+  const [featureLoading, setFeatureLoading] = useState(false);
 
   /* =========================================================
      ÚDRŽBÁR LOGIN
@@ -471,42 +718,34 @@ function App() {
   };
 
   /* =========================================================
-     NAČÍTANIE ZÁVAD
+     NAČÍTANIE ZÁVAD + STABILITA SIETE
      ========================================================= */
 
-  const loadIssues = async () => {
+  const loadIssues = async (): Promise<boolean> => {
     try {
       setIssuesLoading(true);
-
-      const response =
-        await fetch("/api/issues");
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.success
-      ) {
+      const response = await fetchWithRetry("/api/issues", undefined, 12000, 1);
+      const data = await response.json();
+      if (!response.ok || !data.success) {
         showModal(
           "error",
           "Nepodarilo sa načítať závady",
-          data.error ||
-            "Skúste aplikáciu načítať znova."
+          data.error || "Skúste aplikáciu načítať znova."
         );
-
-        return;
+        return false;
       }
-
       setIssues(data.issues || []);
+      return true;
     } catch (error) {
       console.error(error);
-
       showModal(
         "error",
         "Chyba spojenia",
-        "Nepodarilo sa spojiť so serverom."
+        navigator.onLine
+          ? "Server momentálne neodpovedá. Skúste to znova."
+          : "Telefón je offline. Po pripojení skúste načítanie znova."
       );
+      return false;
     } finally {
       setIssuesLoading(false);
     }
@@ -514,7 +753,7 @@ function App() {
 
   const loadRatings = async () => {
     try {
-      const response = await fetch("/api/ratings");
+      const response = await fetchWithRetry("/api/ratings", undefined, 10000, 1);
       const data = await response.json();
       if (response.ok && data.success) {
         setRatings(data.ratings || []);
@@ -523,6 +762,95 @@ function App() {
       console.error(error);
     }
   };
+
+  const loadAlerts = async (
+    audience: "public" | "maintenance" | "management",
+    includeAll = false
+  ) => {
+    try {
+      const query = new URLSearchParams({
+        audience,
+        today: localDateString(),
+      });
+      if (includeAll) query.set("all", "1");
+      const response = await fetchWithRetry(`/api/alerts?${query.toString()}`, undefined, 10000, 1);
+      const data = await response.json();
+      if (response.ok && data.success) {
+        const rows = (data.alerts || []) as AlertItem[];
+        setAlerts(rows);
+        if (audience === "public" && !includeAll) setPublicAlerts(rows);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const openAlerts = async (
+    audience: "public" | "maintenance" | "management",
+    includeAll = false
+  ) => {
+    setAlertsAudience(audience);
+    setAlertsPanelOpen(true);
+    await loadAlerts(audience, includeAll);
+  };
+
+  const loadMessages = async (role: "maintenance" | "manager") => {
+    try {
+      setMessagesLoading(true);
+      const query = new URLSearchParams({ role });
+      if (role === "maintenance") {
+        query.set("maintenance_name", loggedMaintenanceName || maintenanceName.trim());
+      }
+      const response = await fetchWithRetry(`/api/messages?${query.toString()}`, undefined, 10000, 1);
+      const data = await response.json();
+      if (response.ok && data.success) setMessages(data.messages || []);
+    } catch (error) {
+      console.error(error);
+      showModal("error", "Správy sa nenačítali", "Skúste to znova.");
+    } finally {
+      setMessagesLoading(false);
+    }
+  };
+
+  const openMessages = async (role: "maintenance" | "manager") => {
+    setMessagesPanelRole(role);
+    setSelectedMessage(null);
+    setMessageReplies([]);
+    setMessageComposerOpen(false);
+    await loadMessages(role);
+  };
+
+  const loadMessageReplies = async (messageId: number) => {
+    try {
+      const response = await fetchWithRetry(`/api/messages/${messageId}/replies`, undefined, 10000, 1);
+      const data = await response.json();
+      if (response.ok && data.success) setMessageReplies(data.replies || []);
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  useEffect(() => {
+    const online = () => setIsOnline(true);
+    const offline = () => setIsOnline(false);
+    const onWindowError = (event: ErrorEvent) => {
+      console.error("Window error", event.error || event.message);
+    };
+    const onUnhandled = (event: PromiseRejectionEvent) => {
+      console.error("Unhandled promise", event.reason);
+    };
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
+    window.addEventListener("error", onWindowError);
+    window.addEventListener("unhandledrejection", onUnhandled);
+    void loadAlerts("public", false);
+    return () => {
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("error", onWindowError);
+      window.removeEventListener("unhandledrejection", onUnhandled);
+    };
+  }, []);
 
   /* =========================================================
      HISTÓRIA UDALOSTÍ
@@ -573,95 +901,117 @@ function App() {
   };
 
   /* =========================================================
-     NAHLÁSENIE ZÁVADY
+     NAHLÁSENIE ZÁVADY + KONTROLA DUPLÍCÍT
      ========================================================= */
 
-  const submitReport = async (
-    e: React.FormEvent
-  ) => {
+  const sendNewReport = async () => {
+    const formData = new FormData();
+    formData.append("reporter_name", reporter.trim());
+    formData.append("location", location.trim());
+    formData.append("description", description.trim());
+    if (photoFile) {
+      const compressedPhoto = await compressImageForUpload(photoFile);
+      formData.append("photo", compressedPhoto, compressedPhoto.name);
+    }
+
+    const response = await fetchWithRetry(
+      "/api/issues",
+      { method: "POST", body: formData },
+      15000,
+      1
+    );
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Závadu sa nepodarilo odoslať.");
+    }
+    setDuplicateWindowOpen(false);
+    setDuplicateCandidates([]);
+    setScreen("success");
+  };
+
+  const submitReport = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (
-      !reporter.trim() ||
-      !location.trim() ||
-      !description.trim()
-    ) {
+    if (!reporter.trim() || !location.trim() || !description.trim()) {
+      showModal("error", "Chýbajú údaje", "Vyplňte meno, miesto a popis závady.");
+      return;
+    }
+    if (!navigator.onLine) {
       showModal(
-        "error",
-        "Chýbajú údaje",
-        "Vyplňte meno, miesto a popis závady."
+        "info",
+        "Ste offline",
+        "Hlásenie zatiaľ nie je možné odoslať. Fotku môžete vybrať z galérie po opätovnom pripojení."
       );
-
       return;
     }
 
     try {
       setReportLoading(true);
-
-      const formData =
-        new FormData();
-
-      formData.append(
-        "reporter_name",
-        reporter.trim()
-      );
-
-      formData.append(
-        "location",
-        location.trim()
-      );
-
-      formData.append(
-        "description",
-        description.trim()
-      );
-
-      if (photoFile) {
-        const compressedPhoto =
-          await compressImageForUpload(
-            photoFile
-          );
-
-        formData.append(
-          "photo",
-          compressedPhoto,
-          compressedPhoto.name
-        );
-      }
-
-      const response =
-        await fetch("/api/issues", {
+      const response = await fetchWithRetry(
+        "/api/issues/duplicates",
+        {
           method: "POST",
-          body: formData,
-        });
-
-      const data =
-        await response.json();
-
-      if (
-        !response.ok ||
-        !data.success
-      ) {
-        showModal(
-          "error",
-          "Závadu sa nepodarilo odoslať",
-          data.error ||
-            "Skúste to znova."
-        );
-
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            location: location.trim(),
+            description: description.trim(),
+          }),
+        },
+        10000,
+        1
+      );
+      const data = await response.json();
+      const candidates = response.ok && data.success ? data.candidates || [] : [];
+      if (candidates.length > 0) {
+        setDuplicateCandidates(candidates);
+        setDuplicateWindowOpen(true);
         return;
       }
+      await sendNewReport();
+    } catch (error) {
+      console.error(error);
+      showModal(
+        "error",
+        "Závadu sa nepodarilo odoslať",
+        error instanceof Error ? error.message : "Skúste to znova."
+      );
+    } finally {
+      setReportLoading(false);
+    }
+  };
 
+  const mergeDuplicateReport = async (issueId: number) => {
+    try {
+      setDuplicateSubmitting(true);
+      const formData = new FormData();
+      formData.append("reporter_name", reporter.trim());
+      formData.append("location", location.trim());
+      formData.append("description", description.trim());
+      if (photoFile) {
+        const compressedPhoto = await compressImageForUpload(photoFile);
+        formData.append("photo", compressedPhoto, compressedPhoto.name);
+      }
+      const response = await fetchWithRetry(
+        `/api/issues/${issueId}/duplicate-report`,
+        { method: "POST", body: formData },
+        15000,
+        1
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Hlásenie sa nepodarilo pripojiť.");
+      }
+      setDuplicateWindowOpen(false);
+      setDuplicateCandidates([]);
       setScreen("success");
     } catch (error) {
       console.error(error);
-
       showModal(
         "error",
-        "Chyba spojenia",
-        "Nepodarilo sa spojiť so serverom."
+        "Hlásenie sa nepodarilo pripojiť",
+        error instanceof Error ? error.message : "Skúste to znova."
       );
     } finally {
+      setDuplicateSubmitting(false);
       setReportLoading(false);
     }
   };
@@ -672,6 +1022,8 @@ function App() {
     setDescription("");
     setPhotoFile(null);
     setPhotoName("");
+    setDuplicateCandidates([]);
+    setDuplicateWindowOpen(false);
     setScreen("home");
   };
 
@@ -708,17 +1060,18 @@ function App() {
         return;
       }
 
-      setLoggedMaintenanceName(
-        maintenanceName.trim()
-      );
-
-      await loadIssues();
-
+      setLoginLoadingRole("ÚDRŽBA");
+      const ok = await loadIssues();
+      if (!ok) {
+        setLoginLoadingRole(null);
+        return;
+      }
+      setLoggedMaintenanceName(maintenanceName.trim());
       setMaintenanceFilter("new");
-
-      setScreen(
-        "maintenance-dashboard"
-      );
+      setScreen("maintenance-dashboard");
+      setLoginLoadingRole(null);
+      void loadAlerts("maintenance", false);
+      window.setTimeout(() => void loadMessages("maintenance"), 0);
     };
 
   const logoutMaintenance = () => {
@@ -763,20 +1116,21 @@ function App() {
         return;
       }
 
-      setLoggedManagerName(
-        managerName.trim()
-      );
-
-      await loadIssues();
-
+      setLoginLoadingRole("VEDÚCI ÚDRŽBY");
+      const ok = await loadIssues();
+      if (!ok) {
+        setLoginLoadingRole(null);
+        return;
+      }
+      setLoggedManagerName(managerName.trim());
       setManagerStatusFilter("all");
       setManagerAgeFilter(0);
       setManagerStaleFilter(0);
       setManagerSearch("");
-
-      setScreen(
-        "manager-dashboard"
-      );
+      setScreen("manager-dashboard");
+      setLoginLoadingRole(null);
+      void loadAlerts("management", true);
+      window.setTimeout(() => void loadMessages("manager"), 0);
     };
 
   const logoutManager = () => {
@@ -809,12 +1163,20 @@ function App() {
       return;
     }
 
+    setLoginLoadingRole("PREVÁDZKOVÝ MANAŽÉR");
+    const ok = await loadIssues();
+    if (!ok) {
+      setLoginLoadingRole(null);
+      return;
+    }
     setLoggedOperationsName(operationsName.trim());
-    await Promise.all([loadIssues(), loadRatings()]);
+    await loadRatings();
     setOperationsStatusFilter("all");
     setOperationsAgeFilter(0);
     setOperationsStaleFilter(0);
     setScreen("operations-dashboard");
+    setLoginLoadingRole(null);
+    void loadAlerts("management", true);
   };
 
   const logoutOperations = () => {
@@ -1450,6 +1812,248 @@ function App() {
   };
 
   /* =========================================================
+     SPRÁVY ÚDRŽBA <-> VEDÚCI
+     ========================================================= */
+
+  const submitMaintenanceMessage = async () => {
+    if (!loggedMaintenanceName || !messageSubject.trim() || !messageBody.trim()) {
+      showModal("error", "Chýbajú údaje", "Vyplňte predmet a text správy.");
+      return;
+    }
+    try {
+      setFeatureLoading(true);
+      const formData = new FormData();
+      formData.append("sender_name", loggedMaintenanceName);
+      formData.append("category", messageCategory);
+      formData.append("subject", messageSubject.trim());
+      formData.append("message", messageBody.trim());
+      if (messagePhoto) {
+        const compressed = await compressImageForUpload(messagePhoto);
+        formData.append("photo", compressed, compressed.name);
+      }
+      const response = await fetchWithRetry(
+        "/api/messages",
+        { method: "POST", body: formData },
+        15000,
+        1
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Správa sa neodoslala.");
+      setMessageComposerOpen(false);
+      setMessageSubject("");
+      setMessageBody("");
+      setMessagePhoto(null);
+      setMessagePhotoName("");
+      await loadMessages("maintenance");
+      showModal("success", "Správa odoslaná", "Vedúci údržby ju uvidí vo svojom prehľade.");
+    } catch (error) {
+      showModal("error", "Správa sa neodoslala", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const submitMessageReply = async () => {
+    if (!selectedMessage || !messageReplyText.trim()) return;
+    const actorRole = messagesPanelRole === "manager" ? "maintenance_manager" : "maintenance";
+    const actorName = messagesPanelRole === "manager" ? loggedManagerName : loggedMaintenanceName;
+    try {
+      setFeatureLoading(true);
+      const formData = new FormData();
+      formData.append("actor_role", actorRole);
+      formData.append("actor_name", actorName);
+      formData.append("message", messageReplyText.trim());
+      if (messageReplyPhoto) {
+        const compressed = await compressImageForUpload(messageReplyPhoto);
+        formData.append("photo", compressed, compressed.name);
+      }
+      const response = await fetchWithRetry(
+        `/api/messages/${selectedMessage.id}/reply`,
+        { method: "POST", body: formData },
+        15000,
+        1
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Odpoveď sa neodoslala.");
+      setMessageReplyText("");
+      setMessageReplyPhoto(null);
+      setMessageReplyPhotoName("");
+      await loadMessageReplies(selectedMessage.id);
+      if (messagesPanelRole) await loadMessages(messagesPanelRole);
+    } catch (error) {
+      showModal("error", "Odpoveď sa neodoslala", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const resolveMessage = async () => {
+    if (!selectedMessage) return;
+    try {
+      setFeatureLoading(true);
+      const response = await fetchWithRetry(
+        `/api/messages/${selectedMessage.id}/resolve`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manager_name: loggedManagerName }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Správa sa neuzavrela.");
+      setSelectedMessage(null);
+      await loadMessages("manager");
+    } catch (error) {
+      showModal("error", "Správa sa neuzavrela", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const convertMessageToTask = async () => {
+    if (!selectedMessage) return;
+    try {
+      setFeatureLoading(true);
+      const response = await fetchWithRetry(
+        `/api/messages/${selectedMessage.id}/create-task`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ manager_name: loggedManagerName }),
+        }
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Úloha sa nevytvorila.");
+      setSelectedMessage(null);
+      await Promise.all([loadMessages("manager"), loadIssues()]);
+      showModal("success", "Úloha vytvorená", `Zo správy vznikla závada #${String(data.issue_id).padStart(4, "0")}.`);
+    } catch (error) {
+      showModal("error", "Úloha sa nevytvorila", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  /* =========================================================
+     UPOZORNENIA A ODSTÁVKY
+     ========================================================= */
+
+  const alertTypeInfo: Record<AlertType, { label: string; icon: string }> = {
+    critical: { label: "Kritické upozornenie", icon: "⚠" },
+    outage: { label: "Odstávka", icon: "▲" },
+    planned: { label: "Plánovaná práca", icon: "!" },
+    info: { label: "Prevádzková informácia", icon: "i" },
+  };
+
+  const alertStatus = (alert: AlertItem) => {
+    const today = localDateString();
+    if (alert.start_date > today) return "scheduled";
+    if (alert.end_date < today) return "expired";
+    return "active";
+  };
+
+  const toggleAlertAudience = (audience: string) => {
+    setAlertAudiences((current) =>
+      current.includes(audience)
+        ? current.filter((item) => item !== audience)
+        : [...current, audience]
+    );
+  };
+
+  const selectAlertDate = (value: string) => {
+    if (!alertStartDate || (alertStartDate && alertEndDate && alertStartDate !== alertEndDate)) {
+      setAlertStartDate(value);
+      setAlertEndDate(value);
+      return;
+    }
+    if (value < alertStartDate) {
+      setAlertEndDate(alertStartDate);
+      setAlertStartDate(value);
+    } else {
+      setAlertEndDate(value);
+    }
+  };
+
+  const openAlertEditor = () => {
+    setAlertType("critical");
+    setAlertTitle("");
+    setAlertLocation("");
+    setAlertDescription("");
+    setAlertStartDate("");
+    setAlertEndDate("");
+    setAlertAudiences(["public", "maintenance", "management"]);
+    setAlertPhoto(null);
+    setAlertPhotoName("");
+    setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    setAlertEditorOpen(true);
+  };
+
+  const submitAlert = async () => {
+    const creatorName = loggedOperationsName || loggedManagerName;
+    const creatorRole = loggedOperationsName ? "operations_manager" : "maintenance_manager";
+    if (!creatorName || !alertTitle.trim() || !alertLocation.trim() || !alertDescription.trim() || !alertStartDate || !alertEndDate) {
+      showModal("error", "Chýbajú údaje", "Vyplňte názov, miesto, popis a termín upozornenia.");
+      return;
+    }
+    if (alertAudiences.length === 0) {
+      showModal("error", "Vyberte príjemcov", "Upozornenie musí byť zobrazené aspoň jednej skupine.");
+      return;
+    }
+    try {
+      setFeatureLoading(true);
+      const formData = new FormData();
+      formData.append("alert_type", alertType);
+      formData.append("title", alertTitle.trim());
+      formData.append("location", alertLocation.trim());
+      formData.append("description", alertDescription.trim());
+      formData.append("start_date", alertStartDate);
+      formData.append("end_date", alertEndDate);
+      formData.append("audiences", alertAudiences.join(","));
+      formData.append("created_by_role", creatorRole);
+      formData.append("created_by_name", creatorName);
+      if (alertPhoto) {
+        const compressed = await compressImageForUpload(alertPhoto);
+        formData.append("photo", compressed, compressed.name);
+      }
+      const response = await fetchWithRetry(
+        "/api/alerts",
+        { method: "POST", body: formData },
+        15000,
+        1
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Upozornenie sa neuložilo.");
+      setAlertEditorOpen(false);
+      await Promise.all([
+        loadAlerts(alertsAudience, true),
+        loadAlerts("public", false),
+      ]);
+      showModal("success", "Upozornenie publikované", "Zobrazí sa vybraným skupinám počas zvoleného termínu.");
+    } catch (error) {
+      showModal("error", "Upozornenie sa neuložilo", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const archiveAlert = async (alertId: number) => {
+    try {
+      setFeatureLoading(true);
+      const response = await fetchWithRetry(`/api/alerts/${alertId}/archive`, { method: "POST" });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Upozornenie sa neukončilo.");
+      await Promise.all([
+        loadAlerts(alertsAudience, true),
+        loadAlerts("public", false),
+      ]);
+    } catch (error) {
+      showModal("error", "Upozornenie sa neukončilo", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  /* =========================================================
      DÁTUM
      ========================================================= */
 
@@ -1601,6 +2205,12 @@ function App() {
       case "operations_task_created":
         return "Nová úloha od prevádzkového manažéra";
 
+      case "duplicate_report":
+        return "Ďalšie hlásenie rovnakej závady";
+
+      case "message_converted_to_task":
+        return "Úloha vytvorená zo správy údržby";
+
       case "rating_up":
         return "Palec hore";
 
@@ -1632,7 +2242,11 @@ function App() {
       case "escalated_to_manager":
       case "escalated_to_operations":
       case "operations_task_created":
+      case "message_converted_to_task":
         return "➡️";
+
+      case "duplicate_report":
+        return "👥";
 
       case "returned_to_maintenance":
       case "returned_to_manager":
@@ -2116,47 +2730,14 @@ function App() {
             />
           </label>
 
-          <label className="action-photo-upload">
-            <span className="action-camera">
-              📷
-            </span>
-
-            <div>
-              <strong>
-                {maintenanceActionMode ===
-                "resolve"
-                  ? "Fotografia po oprave"
-                  : "Priložiť fotografiu"}
-              </strong>
-
-              <small>
-                Odfotiť alebo vybrať
-              </small>
-            </div>
-
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => {
-                const file =
-                  e.target.files?.[0] ||
-                  null;
-
-                setActionPhoto(file);
-
-                setActionPhotoName(
-                  file?.name || ""
-                );
-              }}
-            />
-          </label>
-
-          {actionPhotoName && (
-            <div className="action-photo-selected">
-              ✓ {actionPhotoName}
-            </div>
-          )}
+          <PhotoChoice
+            title={maintenanceActionMode === "resolve" ? "Fotografia po oprave" : "Priložiť fotografiu"}
+            fileName={actionPhotoName}
+            onFile={(file) => {
+              setActionPhoto(file);
+              setActionPhotoName(file?.name || "");
+            }}
+          />
 
           <button
             className="action-confirm-button"
@@ -2260,47 +2841,14 @@ function App() {
             />
           </label>
 
-          <label className="action-photo-upload">
-            <span className="action-camera">
-              📷
-            </span>
-
-            <div>
-              <strong>
-                Priložiť fotografiu
-              </strong>
-
-              <small>
-                Voliteľné
-              </small>
-            </div>
-
-            <input
-              type="file"
-              accept="image/*"
-              capture="environment"
-              onChange={(e) => {
-                const file =
-                  e.target.files?.[0] ||
-                  null;
-
-                setManagerActionPhoto(
-                  file
-                );
-
-                setManagerActionPhotoName(
-                  file?.name || ""
-                );
-              }}
-            />
-          </label>
-
-          {managerActionPhotoName && (
-            <div className="action-photo-selected">
-              ✓{" "}
-              {managerActionPhotoName}
-            </div>
-          )}
+          <PhotoChoice
+            title="Priložiť fotografiu"
+            fileName={managerActionPhotoName}
+            onFile={(file) => {
+              setManagerActionPhoto(file);
+              setManagerActionPhotoName(file?.name || "");
+            }}
+          />
 
           <button
             className="action-confirm-button"
@@ -2361,28 +2909,14 @@ function App() {
             placeholder="Napíšte komentár..."
           />
         </label>
-        <label className="action-photo-upload">
-          <span className="action-camera">📷</span>
-          <div>
-            <strong>Priložiť fotografiu</strong>
-            <small>Voliteľné</small>
-          </div>
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={(e) => {
-              const file = e.target.files?.[0] || null;
-              setOperationsActionPhoto(file);
-              setOperationsActionPhotoName(file?.name || "");
-            }}
-          />
-        </label>
-        {operationsActionPhotoName && (
-          <div className="action-photo-selected">
-            ✓ {operationsActionPhotoName}
-          </div>
-        )}
+        <PhotoChoice
+          title="Priložiť fotografiu"
+          fileName={operationsActionPhotoName}
+          onFile={(file) => {
+            setOperationsActionPhoto(file);
+            setOperationsActionPhotoName(file?.name || "");
+          }}
+        />
         <button
           className="action-confirm-button"
           onClick={submitOperationsAction}
@@ -2404,6 +2938,324 @@ function App() {
       </div>
     </div>
   ) : null;
+
+  const duplicateWindow = duplicateWindowOpen ? (
+    <div className="action-overlay feature-overlay">
+      <div className="feature-dialog duplicate-dialog">
+        <div className="feature-dialog-head">
+          <div>
+            <small>KONTROLA DUPLICITY</small>
+            <h2>Možno je táto závada už nahlásená</h2>
+          </div>
+          <button onClick={() => setDuplicateWindowOpen(false)}>×</button>
+        </div>
+        <p className="feature-intro">
+          Porovnali sme miesto a kľúčové slová popisu. Pozrite si podobné otvorené závady.
+        </p>
+        <div className="duplicate-list">
+          {duplicateCandidates.map((candidate) => (
+            <div className="duplicate-card" key={candidate.id}>
+              {candidate.photo_key && (
+                <img src={getPhotoUrl(candidate.photo_key)} alt="Podobná závada" />
+              )}
+              <div className="duplicate-card-body">
+                <div className="duplicate-card-top">
+                  <strong>#{String(candidate.id).padStart(4, "0")}</strong>
+                  <span>{Math.round(candidate.score * 100)} % zhoda</span>
+                </div>
+                <h3>{candidate.description}</h3>
+                <p>📍 {candidate.location}</p>
+                <small>{statusLabel(candidate.status)} • {formatDate(candidate.created_at)}</small>
+              </div>
+              <button
+                className="duplicate-merge-button"
+                disabled={duplicateSubmitting}
+                onClick={() => mergeDuplicateReport(candidate.id)}
+              >
+                Áno, je to tá istá
+              </button>
+            </div>
+          ))}
+        </div>
+        <button
+          className="duplicate-new-button"
+          disabled={duplicateSubmitting}
+          onClick={async () => {
+            try {
+              setDuplicateSubmitting(true);
+              await sendNewReport();
+            } catch (error) {
+              showModal("error", "Závadu sa nepodarilo odoslať", error instanceof Error ? error.message : "Skúste to znova.");
+            } finally {
+              setDuplicateSubmitting(false);
+              setReportLoading(false);
+            }
+          }}
+        >
+          Nie, je to iná závada – vytvoriť novú
+        </button>
+      </div>
+    </div>
+  ) : null;
+
+  const messagesWindow = messagesPanelRole ? (
+    <div className="action-overlay feature-overlay">
+      <div className="feature-dialog messages-dialog">
+        <div className="feature-dialog-head">
+          <div>
+            <small>INTERNÁ KOMUNIKÁCIA</small>
+            <h2>{messagesPanelRole === "manager" ? "Správy od údržby" : "Správy vedúcemu"}</h2>
+          </div>
+          <button onClick={() => { setMessagesPanelRole(null); setSelectedMessage(null); }}>×</button>
+        </div>
+
+        {selectedMessage ? (
+          <div className="message-detail">
+            <button className="feature-back" onClick={() => { setSelectedMessage(null); setMessageReplies([]); }}>← Späť na správy</button>
+            <div className="message-original-card">
+              <div className="message-meta-row">
+                <span className={`message-category category-${selectedMessage.category}`}>{selectedMessage.category}</span>
+                <span className={`message-status status-${selectedMessage.status}`}>{selectedMessage.status === "open" ? "Otvorená" : selectedMessage.status === "converted" ? "Vytvorená úloha" : "Vybavená"}</span>
+              </div>
+              <h3>{selectedMessage.subject}</h3>
+              <p>{selectedMessage.message}</p>
+              <small>👤 {selectedMessage.sender_name} • {formatDate(selectedMessage.created_at)}</small>
+              {selectedMessage.photo_key && <img src={getPhotoUrl(selectedMessage.photo_key)} alt="Fotografia správy" className="message-photo" />}
+            </div>
+
+            <div className="message-thread">
+              {messageReplies.map((reply) => (
+                <div className={`message-reply ${reply.actor_role === "maintenance_manager" ? "reply-manager" : "reply-maintenance"}`} key={reply.id}>
+                  <div className="message-reply-head"><strong>{reply.actor_name}</strong><span>{formatDate(reply.created_at)}</span></div>
+                  <p>{reply.message}</p>
+                  {reply.photo_key && <img src={getPhotoUrl(reply.photo_key)} alt="Fotografia odpovede" />}
+                </div>
+              ))}
+            </div>
+
+            {selectedMessage.status === "open" && (
+              <div className="message-reply-box">
+                <textarea
+                  rows={3}
+                  placeholder="Napísať odpoveď..."
+                  value={messageReplyText}
+                  onChange={(e) => setMessageReplyText(e.target.value)}
+                />
+                <PhotoChoice
+                  title="Fotografia k odpovedi"
+                  fileName={messageReplyPhotoName}
+                  onFile={(file) => { setMessageReplyPhoto(file); setMessageReplyPhotoName(file?.name || ""); }}
+                />
+                <button className="submit-button" disabled={featureLoading || !messageReplyText.trim()} onClick={submitMessageReply}>
+                  Odoslať odpoveď
+                </button>
+              </div>
+            )}
+
+            {messagesPanelRole === "manager" && selectedMessage.status === "open" && (
+              <div className="message-manager-actions">
+                <button className="message-task-button" onClick={convertMessageToTask} disabled={featureLoading}>＋ Vytvoriť z toho úlohu</button>
+                <button className="message-resolve-button" onClick={resolveMessage} disabled={featureLoading}>✓ Označiť ako vybavené</button>
+              </div>
+            )}
+          </div>
+        ) : messageComposerOpen ? (
+          <div className="message-composer">
+            <button className="feature-back" onClick={() => setMessageComposerOpen(false)}>← Späť</button>
+            <label>
+              Typ správy
+              <select value={messageCategory} onChange={(e) => setMessageCategory(e.target.value)}>
+                <option value="nakup">Nákup / materiál</option>
+                <option value="rozpis">Chýba v rozpise</option>
+                <option value="organizacia">Organizačné</option>
+                <option value="ine">Iné</option>
+              </select>
+            </label>
+            <label>
+              Predmet
+              <input value={messageSubject} onChange={(e) => setMessageSubject(e.target.value)} placeholder="Napr. Potrebujeme nový ventil" />
+            </label>
+            <label>
+              Správa
+              <textarea rows={5} value={messageBody} onChange={(e) => setMessageBody(e.target.value)} placeholder="Napíšte, čo potrebujete zabezpečiť..." />
+            </label>
+            <PhotoChoice title="Priložiť fotografiu" fileName={messagePhotoName} onFile={(file) => { setMessagePhoto(file); setMessagePhotoName(file?.name || ""); }} />
+            <button className="submit-button" onClick={submitMaintenanceMessage} disabled={featureLoading}>Odoslať vedúcemu</button>
+          </div>
+        ) : (
+          <>
+            {messagesPanelRole === "maintenance" && (
+              <button className="feature-primary-button" onClick={() => setMessageComposerOpen(true)}>＋ Nová správa vedúcemu</button>
+            )}
+            <div className="messages-list">
+              {messagesLoading ? (
+                <div className="loading-box">Načítavam správy...</div>
+              ) : messages.length === 0 ? (
+                <div className="empty-box">Zatiaľ tu nie sú žiadne správy.</div>
+              ) : messages.map((message) => (
+                <button
+                  className="message-list-card"
+                  key={message.id}
+                  onClick={async () => {
+                    setSelectedMessage(message);
+                    await loadMessageReplies(message.id);
+                  }}
+                >
+                  <div>
+                    <div className="message-meta-row">
+                      <span className={`message-category category-${message.category}`}>{message.category}</span>
+                      <span className={`message-status status-${message.status}`}>{message.status === "open" ? "Otvorená" : message.status === "converted" ? "Úloha" : "Vybavená"}</span>
+                    </div>
+                    <strong>{message.subject}</strong>
+                    <p>{message.message}</p>
+                    <small>👤 {message.sender_name} • 💬 {message.reply_count || 0} • {formatDate(message.updated_at)}</small>
+                  </div>
+                  <span>›</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const alertCalendar = (
+    <div className="range-calendar">
+      <div className="calendar-head">
+        <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() - 1, 1))}>‹</button>
+        <strong>{calendarMonth.toLocaleDateString("sk-SK", { month: "long", year: "numeric" })}</strong>
+        <button onClick={() => setCalendarMonth(new Date(calendarMonth.getFullYear(), calendarMonth.getMonth() + 1, 1))}>›</button>
+      </div>
+      <div className="calendar-weekdays">{["Po", "Ut", "St", "Št", "Pi", "So", "Ne"].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="calendar-grid">
+        {calendarCells(calendarMonth).map(({ date, inMonth }) => {
+          const value = localDateString(date);
+          const inRange = alertStartDate && alertEndDate && value >= alertStartDate && value <= alertEndDate;
+          const endpoint = value === alertStartDate || value === alertEndDate;
+          return (
+            <button
+              key={value}
+              className={`${inMonth ? "" : "calendar-outside"} ${inRange ? "calendar-in-range" : ""} ${endpoint ? "calendar-endpoint" : ""}`}
+              onClick={() => selectAlertDate(value)}
+            >
+              {date.getDate()}
+            </button>
+          );
+        })}
+      </div>
+      <div className="calendar-selection">
+        <span>Od: <strong>{alertStartDate || "—"}</strong></span>
+        <span>Do: <strong>{alertEndDate || "—"}</strong></span>
+      </div>
+      <div className="calendar-actions">
+        <button onClick={() => { setAlertStartDate(localDateString()); setAlertEndDate(localDateString()); }}>Dnes</button>
+        <button onClick={() => { setAlertStartDate(""); setAlertEndDate(""); }}>Vymazať termín</button>
+      </div>
+    </div>
+  );
+
+  const alertsWindow = alertsPanelOpen ? (
+    <div className="action-overlay feature-overlay">
+      <div className="feature-dialog alerts-dialog">
+        <div className="feature-dialog-head">
+          <div>
+            <small>AREÁL TATRALANDIA</small>
+            <h2>Upozornenia a odstávky</h2>
+          </div>
+          <button onClick={() => { setAlertsPanelOpen(false); setAlertEditorOpen(false); }}>×</button>
+        </div>
+
+        {alertEditorOpen ? (
+          <div className="alert-editor">
+            <button className="feature-back" onClick={() => setAlertEditorOpen(false)}>← Späť na upozornenia</button>
+            <label>
+              Typ upozornenia
+              <select value={alertType} onChange={(e) => setAlertType(e.target.value as AlertType)}>
+                <option value="critical">🔴 Kritické upozornenie</option>
+                <option value="outage">🟠 Odstávka</option>
+                <option value="planned">🟡 Plánovaná práca</option>
+                <option value="info">🔵 Prevádzková informácia</option>
+              </select>
+            </label>
+            <label>Názov upozornenia<input value={alertTitle} onChange={(e) => setAlertTitle(e.target.value)} placeholder="Napr. Odstávka vody" /></label>
+            <label>Miesto<input value={alertLocation} onChange={(e) => setAlertLocation(e.target.value)} placeholder="Napr. Wellness zóna" /></label>
+            <label>Popis<textarea rows={4} value={alertDescription} onChange={(e) => setAlertDescription(e.target.value)} placeholder="Sem napíšte aj čas, napr. 22:00 – 24:00..." /></label>
+            <div className="alert-term-title">Termín</div>
+            {alertCalendar}
+            <div className="audience-title">Zobraziť komu</div>
+            <div className="audience-chips">
+              {[
+                ["public", "Nahlasovateľom"],
+                ["maintenance", "Údržbe"],
+                ["management", "Vedúcim"],
+              ].map(([value, label]) => (
+                <button key={value} className={alertAudiences.includes(value) ? "audience-active" : ""} onClick={() => toggleAlertAudience(value)}>{label}</button>
+              ))}
+            </div>
+            <PhotoChoice title="Voliteľná fotografia" fileName={alertPhotoName} onFile={(file) => { setAlertPhoto(file); setAlertPhotoName(file?.name || ""); }} />
+            <button className="submit-button" onClick={submitAlert} disabled={featureLoading}>📣 Publikovať upozornenie</button>
+          </div>
+        ) : (
+          <>
+            {(loggedManagerName || loggedOperationsName) && (
+              <button className="feature-primary-button" onClick={openAlertEditor}>＋ Nové upozornenie</button>
+            )}
+            <div className="alerts-list">
+              {alerts.length === 0 ? (
+                <div className="empty-box">Momentálne nie sú žiadne upozornenia.</div>
+              ) : alerts.map((alert) => {
+                const info = alertTypeInfo[alert.alert_type];
+                const status = alertStatus(alert);
+                return (
+                  <div className={`alert-card alert-${alert.alert_type}`} key={alert.id}>
+                    <div className="alert-icon">{info.icon}</div>
+                    <div className="alert-card-body">
+                      <div className="alert-card-top"><strong>{info.label}</strong><span className={`alert-status alert-status-${status}`}>{status === "active" ? "Aktívne" : status === "scheduled" ? "Naplánované" : "Ukončené"}</span></div>
+                      <h3>{alert.title}</h3>
+                      <p className="alert-location">📍 {alert.location}</p>
+                      <p>{alert.description}</p>
+                      <small>📅 {alert.start_date === alert.end_date ? alert.start_date : `${alert.start_date} – ${alert.end_date}`}</small>
+                      {alert.photo_key && <img src={getPhotoUrl(alert.photo_key)} alt="Upozornenie" />}
+                      {(loggedManagerName || loggedOperationsName) && status !== "expired" && (
+                        <button className="alert-archive" onClick={() => archiveAlert(alert.id)}>Ukončiť upozornenie</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const loginLoadingWindow = loginLoadingRole ? (
+    <div className="action-overlay feature-overlay loading-overlay">
+      <div className="login-loading-card">
+        <div className="loading-spinner" />
+        <strong>Prihlasujem</strong>
+        <span>{loginLoadingRole} • načítavam aktuálne dáta…</span>
+        <small>Ak je pripojenie slabé, môže to chvíľu trvať.</small>
+      </div>
+    </div>
+  ) : null;
+
+  const offlineWindow = !isOnline ? (
+    <div className="offline-banner">● Ste offline – zmeny nie je možné odoslať</div>
+  ) : null;
+
+  const globalWindows = (
+    <>
+      {modalWindow}
+      {duplicateWindow}
+      {messagesWindow}
+      {alertsWindow}
+      {loginLoadingWindow}
+      {offlineWindow}
+    </>
+  );
 
   /* =========================================================
      ZDIEĽANÁ HISTÓRIA DETAIL
@@ -2729,7 +3581,7 @@ function App() {
           </section>
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   };
@@ -2784,7 +3636,7 @@ function App() {
             </div>
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3004,7 +3856,7 @@ function App() {
             )}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
         {operationsActionWindow}
       </>
     );
@@ -3048,31 +3900,21 @@ function App() {
                   placeholder="Popíšte, čo je potrebné zabezpečiť..."
                 />
               </label>
-              <label className="photo-upload-box">
-                <span className="photo-upload-icon">📷</span>
-                <div>
-                  <strong>Priložiť fotografiu</strong>
-                  <small>Voliteľné</small>
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0] || null;
-                    setTaskPhoto(file);
-                    setTaskPhotoName(file?.name || "");
-                  }}
-                />
-              </label>
-              {taskPhotoName && <div className="action-photo-selected">✓ {taskPhotoName}</div>}
+              <PhotoChoice
+                title="Priložiť fotografiu"
+                fileName={taskPhotoName}
+                onFile={(file) => {
+                  setTaskPhoto(file);
+                  setTaskPhotoName(file?.name || "");
+                }}
+              />
               <button className="submit-button" type="submit" disabled={actionLoading}>
                 {actionLoading ? "Odosielam..." : "➕ Vytvoriť úlohu"}
               </button>
             </form>
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3136,7 +3978,7 @@ function App() {
             {operationsBottomNav("decision")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3202,7 +4044,7 @@ function App() {
             {operationsBottomNav("history")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3280,7 +4122,7 @@ function App() {
             {operationsBottomNav("statistics")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3317,6 +4159,15 @@ function App() {
             <div className="dashboard-title-row">
               <div><div className="section-label">CELÁ ÚDRŽBA</div><h1>Prehľad</h1></div>
               <button className="operations-add-task" onClick={() => setScreen("operations-new-task")}>＋ Úloha</button>
+            </div>
+
+            <div className="feature-quick-grid management-feature-grid operations-feature-grid">
+              <button onClick={() => openAlerts("management", true)}>
+                <span>⚠️</span><div><strong>Upozornenia</strong><small>Odstávky a prevádzkové info</small></div>
+              </button>
+              <button className="feature-add-alert" onClick={() => { setAlertsAudience("management"); setAlertsPanelOpen(true); void loadAlerts("management", true); openAlertEditor(); }}>
+                <span>＋</span><div><strong>Nové upozornenie</strong><small>Publikovať pre areál</small></div>
+              </button>
             </div>
 
             <div className="operations-status-grid">
@@ -3420,7 +4271,7 @@ function App() {
             {operationsBottomNav("overview")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3635,7 +4486,7 @@ function App() {
           </section>
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3712,7 +4563,7 @@ function App() {
             {managerBottomNav("decision")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3810,7 +4661,7 @@ function App() {
             {managerBottomNav("statistics")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -3843,6 +4694,7 @@ function App() {
             "operations_resolved",
             "operations_task_created",
             "resolved",
+            "duplicate_report",
           ].includes(event.event_type) &&
           Boolean(
             event.message ||
@@ -4225,7 +5077,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
         {managerActionWindow}
       </>
     );
@@ -4272,6 +5124,18 @@ function App() {
                 <h1>Prehľad</h1>
               </div>
               <button className="notification-bell" onClick={loadIssues}>↻</button>
+            </div>
+
+            <div className="feature-quick-grid management-feature-grid">
+              <button onClick={() => openMessages("manager")}>
+                <span>💬</span><div><strong>Správy od údržby</strong><small>{messages.filter((item) => item.status === "open").length} otvorených</small></div>
+              </button>
+              <button onClick={() => openAlerts("management", true)}>
+                <span>⚠️</span><div><strong>Upozornenia</strong><small>Odstávky a prevádzkové info</small></div>
+              </button>
+              <button className="feature-add-alert" onClick={() => { setAlertsAudience("management"); setAlertsPanelOpen(true); void loadAlerts("management", true); openAlertEditor(); }}>
+                <span>＋</span><div><strong>Nové upozornenie</strong><small>Publikovať pre areál</small></div>
+              </button>
             </div>
 
             <div className="operations-status-grid">
@@ -4379,7 +5243,7 @@ function App() {
             {managerBottomNav("overview")}
           </section>
         </main>
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -4491,7 +5355,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -4686,7 +5550,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -4713,6 +5577,7 @@ function App() {
             "operations_resolved",
             "operations_task_created",
             "resolved",
+            "duplicate_report",
           ].includes(event.event_type) &&
           Boolean(
             event.message ||
@@ -4950,7 +5815,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
         {maintenanceActionWindow}
       </>
     );
@@ -5007,6 +5872,15 @@ function App() {
                 🔧
               </div>
 
+            </div>
+
+            <div className="feature-quick-grid maintenance-feature-grid">
+              <button onClick={() => openMessages("maintenance")}>
+                <span>💬</span><div><strong>Správa vedúcemu</strong><small>Nákup, materiál, rozpis, iné</small></div>
+              </button>
+              <button onClick={() => openAlerts("maintenance", false)}>
+                <span>⚠️</span><div><strong>Upozornenia</strong><small>Aktuálne obmedzenia areálu</small></div>
+              </button>
             </div>
 
             <div className="stats-grid">
@@ -5197,7 +6071,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -5314,7 +6188,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -5356,6 +6230,19 @@ function App() {
             <h1>
               Nahlásiť závadu
             </h1>
+
+            {publicAlerts.length > 0 && (
+              <div className="report-active-alerts">
+                <div className="report-alerts-title">⚠ Pred nahlásením skontrolujte aktuálne obmedzenia</div>
+                {publicAlerts.slice(0, 2).map((alert) => (
+                  <button key={alert.id} type="button" className={`report-alert-mini alert-${alert.alert_type}`} onClick={() => openAlerts("public", false)}>
+                    <span>{alertTypeInfo[alert.alert_type].icon}</span>
+                    <div><strong>{alert.title}</strong><small>{alert.location} • {alert.description}</small></div>
+                    <b>›</b>
+                  </button>
+                ))}
+              </div>
+            )}
 
             <form
               className="report-form"
@@ -5402,46 +6289,14 @@ function App() {
                 />
               </label>
 
-              <label className="photo-upload">
-
-                <div className="photo-icon">
-                  📷
-                </div>
-
-                <div>
-                  <strong>
-                    Pridať fotografiu
-                  </strong>
-
-                  <span>
-                    Odfotiť alebo vybrať
-                  </span>
-                </div>
-
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(e) => {
-                    const file =
-                      e.target.files?.[0] ||
-                      null;
-
-                    setPhotoFile(file);
-
-                    setPhotoName(
-                      file?.name || ""
-                    );
-                  }}
-                />
-
-              </label>
-
-              {photoName && (
-                <div className="photo-selected">
-                  ✓ {photoName}
-                </div>
-              )}
+              <PhotoChoice
+                title="Fotografia závady"
+                fileName={photoName}
+                onFile={(file) => {
+                  setPhotoFile(file);
+                  setPhotoName(file?.name || "");
+                }}
+              />
 
               <button
                 className="submit-button"
@@ -5461,7 +6316,7 @@ function App() {
 
         </main>
 
-        {modalWindow}
+        {globalWindows}
       </>
     );
   }
@@ -5570,6 +6425,19 @@ function App() {
 
             </button>
 
+            <button
+              className={`home-alert-button ${publicAlerts.some((item) => item.alert_type === "critical") ? "home-alert-critical" : ""}`}
+              onClick={() => openAlerts("public", false)}
+            >
+              <div className="home-alert-icon">⚠</div>
+              <div>
+                <strong>Upozornenia a odstávky</strong>
+                <span>{publicAlerts.length > 0 ? `${publicAlerts.length} aktuálne` : "Bez aktuálnych obmedzení"}</span>
+              </div>
+              {publicAlerts.length > 0 && <b>{publicAlerts.length}</b>}
+              <div className="role-arrow">›</div>
+            </button>
+
           </div>
 
           <div className="home-content">
@@ -5666,7 +6534,7 @@ function App() {
             </div>
 
             <div className="app-author">
-              Autor aplikácie: Jaroslav Pažítka
+              Autor aplikácie: Jaroslav Pažítka • v{APP_VERSION}
             </div>
 
           </div>
@@ -5675,9 +6543,17 @@ function App() {
 
       </main>
 
-      {modalWindow}
+      {globalWindows}
     </>
   );
 }
 
-export default App;
+function TatralandiaApp() {
+  return (
+    <AppErrorBoundary>
+      <App />
+    </AppErrorBoundary>
+  );
+}
+
+export default TatralandiaApp;
