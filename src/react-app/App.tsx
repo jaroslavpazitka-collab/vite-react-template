@@ -165,7 +165,7 @@ type AlertItem = {
   archived_at: string | null;
 };
 
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -447,6 +447,7 @@ function App() {
   ]);
   const [alertPhoto, setAlertPhoto] = useState<File | null>(null);
   const [alertPhotoName, setAlertPhotoName] = useState("");
+  const [alertSubmitError, setAlertSubmitError] = useState("");
   const [calendarMonth, setCalendarMonth] = useState(
     new Date(new Date().getFullYear(), new Date().getMonth(), 1)
   );
@@ -1984,23 +1985,43 @@ function App() {
     setAlertAudiences(["public", "maintenance", "management"]);
     setAlertPhoto(null);
     setAlertPhotoName("");
+    setAlertSubmitError("");
     setCalendarMonth(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
     setAlertEditorOpen(true);
   };
 
   const submitAlert = async () => {
+    if (featureLoading) return;
+
     const creatorName = loggedOperationsName || loggedManagerName;
     const creatorRole = loggedOperationsName ? "operations_manager" : "maintenance_manager";
-    if (!creatorName || !alertTitle.trim() || !alertLocation.trim() || !alertDescription.trim() || !alertStartDate || !alertEndDate) {
-      showModal("error", "Chýbajú údaje", "Vyplňte názov, miesto, popis a termín upozornenia.");
+
+    setAlertSubmitError("");
+
+    if (!creatorName) {
+      const message = "Prihlásenie už nie je aktívne. Zatvorte okno a prihláste sa znova.";
+      setAlertSubmitError(message);
+      showModal("error", "Chýba prihlásenie", message);
       return;
     }
+
+    if (!alertTitle.trim() || !alertLocation.trim() || !alertDescription.trim() || !alertStartDate || !alertEndDate) {
+      const message = "Vyplňte názov, miesto, popis a termín upozornenia.";
+      setAlertSubmitError(message);
+      showModal("error", "Chýbajú údaje", message);
+      return;
+    }
+
     if (alertAudiences.length === 0) {
-      showModal("error", "Vyberte príjemcov", "Upozornenie musí byť zobrazené aspoň jednej skupine.");
+      const message = "Upozornenie musí byť zobrazené aspoň jednej skupine.";
+      setAlertSubmitError(message);
+      showModal("error", "Vyberte príjemcov", message);
       return;
     }
+
     try {
       setFeatureLoading(true);
+
       const formData = new FormData();
       formData.append("alert_type", alertType);
       formData.append("title", alertTitle.trim());
@@ -2011,26 +2032,49 @@ function App() {
       formData.append("audiences", alertAudiences.join(","));
       formData.append("created_by_role", creatorRole);
       formData.append("created_by_name", creatorName);
+
       if (alertPhoto) {
         const compressed = await compressImageForUpload(alertPhoto);
         formData.append("photo", compressed, compressed.name);
       }
+
       const response = await fetchWithRetry(
         "/api/alerts",
         { method: "POST", body: formData },
         15000,
         1
       );
-      const data = await response.json();
-      if (!response.ok || !data.success) throw new Error(data.error || "Upozornenie sa neuložilo.");
+
+      const raw = await response.text();
+      let data: { success?: boolean; error?: string; alert_id?: number } = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(`Server vrátil nečakanú odpoveď (${response.status}).`);
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || `Upozornenie sa neuložilo (${response.status}).`);
+      }
+
+      setAlertSubmitError("");
       setAlertEditorOpen(false);
+
       await Promise.all([
         loadAlerts(alertsAudience, true),
         loadAlerts("public", false),
       ]);
-      showModal("success", "Upozornenie publikované", "Zobrazí sa vybraným skupinám počas zvoleného termínu.");
+
+      showModal(
+        "success",
+        "Upozornenie publikované",
+        "Zobrazí sa vybraným skupinám počas zvoleného termínu.",
+        data.alert_id ? `Číslo upozornenia: ${data.alert_id}` : undefined
+      );
     } catch (error) {
-      showModal("error", "Upozornenie sa neuložilo", error instanceof Error ? error.message : "Skúste to znova.");
+      const message = error instanceof Error ? error.message : "Skúste to znova.";
+      setAlertSubmitError(message);
+      showModal("error", "Upozornenie sa neuložilo", message);
     } finally {
       setFeatureLoading(false);
     }
@@ -3194,7 +3238,20 @@ function App() {
               ))}
             </div>
             <PhotoChoice title="Voliteľná fotografia" fileName={alertPhotoName} onFile={(file) => { setAlertPhoto(file); setAlertPhotoName(file?.name || ""); }} />
-            <button className="submit-button" onClick={submitAlert} disabled={featureLoading}>📣 Publikovať upozornenie</button>
+            {alertSubmitError && (
+              <div className="alert-submit-error" role="alert">
+                <strong>⚠ Upozornenie sa zatiaľ neodoslalo</strong>
+                <span>{alertSubmitError}</span>
+              </div>
+            )}
+            <button
+              type="button"
+              className="submit-button alert-submit-button"
+              onClick={submitAlert}
+              disabled={featureLoading}
+            >
+              {featureLoading ? "Publikujem..." : "📣 Publikovať upozornenie"}
+            </button>
           </div>
         ) : (
           <>
@@ -3248,10 +3305,10 @@ function App() {
 
   const globalWindows = (
     <>
-      {modalWindow}
       {duplicateWindow}
       {messagesWindow}
       {alertsWindow}
+      {modalWindow}
       {loginLoadingWindow}
       {offlineWindow}
     </>
