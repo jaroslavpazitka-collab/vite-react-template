@@ -1,4 +1,4 @@
-import { Component, useEffect, useState, type ReactNode } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import tatralandiaLogo from "./assets/tatralandia-logo.jpg";
 import "./App.css";
 
@@ -167,7 +167,22 @@ type AlertItem = {
   archived_at: string | null;
 };
 
-const APP_VERSION = "1.4.3";
+type AuthRole = "maintenance" | "maintenance_manager" | "operations_manager";
+type PushState = "unsupported" | "inactive" | "active" | "denied" | "loading";
+
+type OfflineDraft = {
+  id: string;
+  reporter: string;
+  location: string;
+  description: string;
+  photoBlob: Blob | null;
+  photoName: string;
+  photoType: string;
+  createdAt: string;
+  needsReview: boolean;
+};
+
+const APP_VERSION = "1.5.0";
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -260,6 +275,75 @@ function calendarCells(monthDate: Date) {
     });
   }
   return cells;
+}
+
+
+const OFFLINE_DB_NAME = "tatralandia-udrzba-offline";
+const OFFLINE_DB_VERSION = 1;
+const OFFLINE_STORE = "reportDrafts";
+
+function openOfflineDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(OFFLINE_STORE)) {
+        db.createObjectStore(OFFLINE_STORE, { keyPath: "id" });
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Offline úložisko nie je dostupné."));
+  });
+}
+
+async function getOfflineDrafts(): Promise<OfflineDraft[]> {
+  if (typeof indexedDB === "undefined") return [];
+  const db = await openOfflineDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_STORE, "readonly");
+    const request = tx.objectStore(OFFLINE_STORE).getAll();
+    request.onsuccess = () => {
+      const rows = (request.result || []) as OfflineDraft[];
+      rows.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+      resolve(rows);
+    };
+    request.onerror = () => reject(request.error);
+    tx.oncomplete = () => db.close();
+  });
+}
+
+async function putOfflineDraft(draft: OfflineDraft) {
+  const db = await openOfflineDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_STORE, "readwrite");
+    tx.objectStore(OFFLINE_STORE).put(draft);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+async function removeOfflineDraft(id: string) {
+  const db = await openOfflineDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OFFLINE_STORE, "readwrite");
+    tx.objectStore(OFFLINE_STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+function urlBase64ToUint8Array(value: string) {
+  const padding = "=".repeat((4 - (value.length % 4)) % 4);
+  const base64 = (value + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = window.atob(base64);
+  return Uint8Array.from(raw, (char) => char.charCodeAt(0));
+}
+
+function isStandalonePwa() {
+  const navigatorStandalone = Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
+  return window.matchMedia?.("(display-mode: standalone)").matches || navigatorStandalone;
 }
 
 function PhotoChoice({
@@ -407,6 +491,13 @@ function App() {
     typeof navigator === "undefined" ? true : navigator.onLine
   );
   const [loginLoadingRole, setLoginLoadingRole] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [pushState, setPushState] = useState<PushState>("inactive");
+  const [offlineDrafts, setOfflineDrafts] = useState<OfflineDraft[]>([]);
+  const [draftsPanelOpen, setDraftsPanelOpen] = useState(false);
+  const [syncingDrafts, setSyncingDrafts] = useState(false);
+  const syncingDraftsRef = useRef(false);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
 
   const [duplicateCandidates, setDuplicateCandidates] =
     useState<DuplicateCandidate[]>([]);
@@ -729,6 +820,12 @@ function App() {
       setIssuesLoading(true);
       const response = await fetchWithRetry("/api/issues", undefined, 12000, 1);
       const data = await response.json();
+      if (response.status === 401) {
+        clearStaffSessionState();
+        setScreen("home");
+        showModal("info", "Prihlásenie vypršalo", "Prihláste sa prosím znova.");
+        return false;
+      }
       if (!response.ok || !data.success) {
         showModal(
           "error",
@@ -833,8 +930,321 @@ function App() {
     }
   };
 
+
+  const clearStaffSessionState = () => {
+    setLoggedMaintenanceName("");
+    setLoggedManagerName("");
+    setLoggedOperationsName("");
+    setMaintenancePassword("");
+    setManagerPassword("");
+    setOperationsPassword("");
+    setSelectedIssue(null);
+    setIssueEvents([]);
+    setPushState("inactive");
+  };
+
+  const refreshOfflineDrafts = async () => {
+    try {
+      setOfflineDrafts(await getOfflineDrafts());
+    } catch (error) {
+      console.error("Offline koncepty sa nepodarilo načítať", error);
+    }
+  };
+
+  const refreshPushStatus = async () => {
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      setPushState("unsupported");
+      return;
+    }
+    if (Notification.permission === "denied") {
+      setPushState("denied");
+      return;
+    }
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        setPushState("inactive");
+        return;
+      }
+      const response = await fetchWithRetry(
+        `/api/push/status?endpoint=${encodeURIComponent(subscription.endpoint)}`,
+        undefined,
+        8000,
+        0
+      );
+      const data = await response.json();
+      setPushState(response.ok && data.success && data.active ? "active" : "inactive");
+    } catch (error) {
+      console.error(error);
+      setPushState("inactive");
+    }
+  };
+
+  const sendPushTokenToWorker = async (token: string | null) => {
+    if (!("serviceWorker" in navigator)) return;
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const worker = registration.active || navigator.serviceWorker.controller;
+      worker?.postMessage({ type: token ? "SET_DEVICE_TOKEN" : "CLEAR_DEVICE_TOKEN", token });
+    } catch (error) {
+      console.error(error);
+    }
+  };
+
+  const enablePushNotifications = async () => {
+    if (!(loggedMaintenanceName || loggedManagerName || loggedOperationsName)) {
+      showModal("info", "Najprv sa prihláste", "Notifikácie sú viazané na konkrétneho pracovníka a jeho rolu.");
+      return;
+    }
+    if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
+      showModal("info", "Notifikácie nie sú dostupné", "Tento prehliadač nepodporuje Web Push notifikácie.");
+      setPushState("unsupported");
+      return;
+    }
+    if (/iPhone|iPad|iPod/i.test(navigator.userAgent) && !isStandalonePwa()) {
+      showModal("info", "Najprv pridajte aplikáciu na plochu", "Na iPhone/iPade fungujú push notifikácie po otvorení aplikácie z ikony na ploche.");
+      return;
+    }
+
+    try {
+      setPushState("loading");
+      const permission = await Notification.requestPermission();
+      if (permission !== "granted") {
+        setPushState(permission === "denied" ? "denied" : "inactive");
+        showModal("info", "Notifikácie neboli povolené", "Povolenie môžete neskôr zmeniť v nastaveniach prehliadača alebo telefónu.");
+        return;
+      }
+
+      const keyResponse = await fetchWithRetry("/api/push/vapid-public-key", undefined, 10000, 1);
+      const keyData = await keyResponse.json();
+      if (!keyResponse.ok || !keyData.success || !keyData.public_key) {
+        throw new Error(keyData.error || "Nepodarilo sa načítať push kľúč.");
+      }
+
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(keyData.public_key),
+        });
+      }
+      const json = subscription.toJSON();
+      const response = await fetchWithRetry(
+        "/api/push/subscribe",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint, keys: json.keys || {} }),
+        },
+        12000,
+        1
+      );
+      const data = await response.json();
+      if (!response.ok || !data.success || !data.device_token) {
+        throw new Error(data.error || "Notifikácie sa nepodarilo aktivovať.");
+      }
+      await sendPushTokenToWorker(data.device_token);
+      setPushState("active");
+      showModal("success", "Notifikácie sú zapnuté", "Na tomto zariadení budete dostávať upozornenia podľa svojej roly.");
+    } catch (error) {
+      console.error(error);
+      setPushState("inactive");
+      showModal("error", "Notifikácie sa nepodarilo zapnúť", error instanceof Error ? error.message : "Skúste to znova.");
+    }
+  };
+
+  const disablePushNotifications = async () => {
+    try {
+      setPushState("loading");
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (subscription) {
+        await fetchWithRetry("/api/push/unsubscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint: subscription.endpoint }),
+        });
+        await subscription.unsubscribe();
+      }
+      await sendPushTokenToWorker(null);
+      setPushState("inactive");
+      showModal("success", "Notifikácie sú vypnuté", "Na tomto zariadení už push upozornenia nebudú chodiť.");
+    } catch (error) {
+      console.error(error);
+      setPushState("active");
+      showModal("error", "Notifikácie sa nepodarilo vypnúť", "Skúste to znova.");
+    }
+  };
+
+  const pushFeatureButton = (
+    <button
+      className={pushState === "active" ? "push-feature-active" : ""}
+      onClick={() => pushState === "active" ? void disablePushNotifications() : void enablePushNotifications()}
+      disabled={pushState === "loading"}
+    >
+      <span>🔔</span>
+      <div>
+        <strong>{pushState === "active" ? "Notifikácie zapnuté" : pushState === "loading" ? "Nastavujem…" : "Zapnúť notifikácie"}</strong>
+        <small>{pushState === "active" ? "Kliknutím vypnúť na tomto zariadení" : pushState === "denied" ? "Povolenie je blokované v zariadení" : "Nové závady, správy a rozhodnutia"}</small>
+      </div>
+    </button>
+  );
+
+  const saveCurrentReportOffline = async () => {
+    try {
+      const compressed = photoFile ? await compressImageForUpload(photoFile) : null;
+      const id = activeDraftId || crypto.randomUUID();
+      await putOfflineDraft({
+        id,
+        reporter: reporter.trim(),
+        location: location.trim(),
+        description: description.trim(),
+        photoBlob: compressed,
+        photoName: compressed?.name || "",
+        photoType: compressed?.type || "",
+        createdAt: new Date().toISOString(),
+        needsReview: false,
+      });
+      setActiveDraftId(null);
+      setReporter("");
+      setLocation("");
+      setDescription("");
+      setPhotoFile(null);
+      setPhotoName("");
+      await refreshOfflineDrafts();
+      setScreen("home");
+      showModal("success", "Hlásenie uložené offline", "Koncept ostáva v tomto zariadení. Po obnovení internetu sa aplikácia pokúsi hlásenie odoslať.");
+    } catch (error) {
+      console.error(error);
+      showModal("error", "Koncept sa nepodarilo uložiť", "Skúste uvoľniť miesto v zariadení alebo aplikáciu znovu otvoriť.");
+    }
+  };
+
+  const syncOfflineDrafts = async (showResult = false) => {
+    if (!navigator.onLine || syncingDraftsRef.current) return;
+    try {
+      syncingDraftsRef.current = true;
+      setSyncingDrafts(true);
+      const drafts = await getOfflineDrafts();
+      let sent = 0;
+      let review = 0;
+      for (const draft of drafts) {
+        try {
+          const duplicateResponse = await fetchWithRetry(
+            "/api/issues/duplicates",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ location: draft.location, description: draft.description }),
+            },
+            8000,
+            0
+          );
+          const duplicateData = await duplicateResponse.json();
+          const candidates = duplicateResponse.ok && duplicateData.success ? duplicateData.candidates || [] : [];
+          if (candidates.length > 0) {
+            if (!draft.needsReview) await putOfflineDraft({ ...draft, needsReview: true });
+            review += 1;
+            continue;
+          }
+
+          const formData = new FormData();
+          formData.append("reporter_name", draft.reporter);
+          formData.append("location", draft.location);
+          formData.append("description", draft.description);
+          if (draft.photoBlob) {
+            formData.append("photo", new File([draft.photoBlob], draft.photoName || "foto.jpg", { type: draft.photoType || draft.photoBlob.type || "image/jpeg" }));
+          }
+          const response = await fetchWithRetry("/api/issues", { method: "POST", body: formData }, 15000, 0);
+          const data = await response.json();
+          if (!response.ok || !data.success) throw new Error(data.error || "Odoslanie zlyhalo.");
+          await removeOfflineDraft(draft.id);
+          sent += 1;
+        } catch (error) {
+          console.error("Offline koncept sa nepodarilo synchronizovať", error);
+          if (!navigator.onLine) break;
+        }
+      }
+      await refreshOfflineDrafts();
+      if (showResult) {
+        if (sent > 0 && review === 0) showModal("success", "Offline hlásenia odoslané", `Odoslaných hlásení: ${sent}.`);
+        else if (sent > 0 || review > 0) showModal("info", "Synchronizácia dokončená", `Odoslané: ${sent}. Na kontrolu duplicity: ${review}.`);
+        else showModal("info", "Nie je čo odoslať", "Všetky offline koncepty sú už spracované.");
+      }
+    } finally {
+      syncingDraftsRef.current = false;
+      setSyncingDrafts(false);
+    }
+  };
+
+  const editOfflineDraft = (draft: OfflineDraft) => {
+    setReporter(draft.reporter);
+    setLocation(draft.location);
+    setDescription(draft.description);
+    if (draft.photoBlob) {
+      const file = new File([draft.photoBlob], draft.photoName || "foto.jpg", { type: draft.photoType || draft.photoBlob.type || "image/jpeg" });
+      setPhotoFile(file);
+      setPhotoName(file.name);
+    } else {
+      setPhotoFile(null);
+      setPhotoName("");
+    }
+    setActiveDraftId(draft.id);
+    setDraftsPanelOpen(false);
+    setScreen("report");
+  };
+
+  const deleteOfflineDraft = async (id: string) => {
+    await removeOfflineDraft(id);
+    if (activeDraftId === id) setActiveDraftId(null);
+    await refreshOfflineDrafts();
+  };
+
+  const restoreAuthSession = async () => {
+    try {
+      const response = await fetch("/api/auth/me", { cache: "no-store" });
+      if (!response.ok) return;
+      const data = await response.json();
+      if (!data.success || !data.session) return;
+      const role = data.session.role as AuthRole;
+      const name = String(data.session.name || "");
+      if (!name) return;
+      if (role === "maintenance") setLoggedMaintenanceName(name);
+      if (role === "maintenance_manager") setLoggedManagerName(name);
+      if (role === "operations_manager") setLoggedOperationsName(name);
+      const ok = await loadIssues();
+      if (!ok) return;
+      if (role === "maintenance") {
+        setMaintenanceFilter("new");
+        setScreen("maintenance-dashboard");
+        void loadAlerts("maintenance", false);
+        window.setTimeout(() => void loadMessages("maintenance"), 0);
+      } else if (role === "maintenance_manager") {
+        setManagerStatusFilter("all");
+        setScreen("manager-dashboard");
+        void loadAlerts("management", true);
+        window.setTimeout(() => void loadMessages("manager"), 0);
+      } else {
+        await loadRatings();
+        setOperationsStatusFilter("all");
+        setScreen("operations-dashboard");
+        void loadAlerts("management", true);
+      }
+      window.setTimeout(() => void refreshPushStatus(), 0);
+    } catch (error) {
+      console.error("Obnovenie prihlásenia zlyhalo", error);
+    } finally {
+      setAuthReady(true);
+    }
+  };
+
   useEffect(() => {
-    const online = () => setIsOnline(true);
+    const online = () => {
+      setIsOnline(true);
+      window.setTimeout(() => void syncOfflineDrafts(false), 800);
+    };
     const offline = () => setIsOnline(false);
     const onWindowError = (event: ErrorEvent) => {
       console.error("Window error", event.error || event.message);
@@ -842,11 +1252,60 @@ function App() {
     const onUnhandled = (event: PromiseRejectionEvent) => {
       console.error("Unhandled promise", event.reason);
     };
+
+    const setupPwa = async () => {
+      try {
+        if (!document.querySelector('link[rel="manifest"]')) {
+          const manifest = document.createElement("link");
+          manifest.rel = "manifest";
+          manifest.href = "/manifest.webmanifest";
+          document.head.appendChild(manifest);
+        }
+        let theme = document.querySelector('meta[name="theme-color"]') as HTMLMetaElement | null;
+        if (!theme) {
+          theme = document.createElement("meta");
+          theme.name = "theme-color";
+          document.head.appendChild(theme);
+        }
+        theme.content = "#111111";
+
+        if (!document.querySelector('link[rel="apple-touch-icon"]')) {
+          const appleIcon = document.createElement("link");
+          appleIcon.rel = "apple-touch-icon";
+          appleIcon.href = "/icon-192.png";
+          document.head.appendChild(appleIcon);
+        }
+        if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+          const capable = document.createElement("meta");
+          capable.name = "apple-mobile-web-app-capable";
+          capable.content = "yes";
+          document.head.appendChild(capable);
+        }
+        if (!document.querySelector('meta[name="apple-mobile-web-app-title"]')) {
+          const appTitle = document.createElement("meta");
+          appTitle.name = "apple-mobile-web-app-title";
+          appTitle.content = "Údržba TTL";
+          document.head.appendChild(appTitle);
+        }
+
+        if ("serviceWorker" in navigator) {
+          const registration = await navigator.serviceWorker.register("/sw.js", { updateViaCache: "none" });
+          void registration.update();
+        }
+      } catch (error) {
+        console.error("PWA registrácia zlyhala", error);
+      }
+    };
+
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
     window.addEventListener("error", onWindowError);
     window.addEventListener("unhandledrejection", onUnhandled);
+    void setupPwa();
+    void refreshOfflineDrafts();
     void loadAlerts("public", false);
+    void restoreAuthSession();
+    if (navigator.onLine) window.setTimeout(() => void syncOfflineDrafts(false), 1200);
     return () => {
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);
@@ -927,6 +1386,11 @@ function App() {
     if (!response.ok || !data.success) {
       throw new Error(data.error || "Závadu sa nepodarilo odoslať.");
     }
+    if (activeDraftId) {
+      await removeOfflineDraft(activeDraftId);
+      setActiveDraftId(null);
+      await refreshOfflineDrafts();
+    }
     setDuplicateWindowOpen(false);
     setDuplicateCandidates([]);
     setScreen("success");
@@ -939,11 +1403,7 @@ function App() {
       return;
     }
     if (!navigator.onLine) {
-      showModal(
-        "info",
-        "Ste offline",
-        "Hlásenie zatiaľ nie je možné odoslať. Fotku môžete vybrať z galérie po opätovnom pripojení."
-      );
+      await saveCurrentReportOffline();
       return;
     }
 
@@ -1003,6 +1463,11 @@ function App() {
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Hlásenie sa nepodarilo pripojiť.");
       }
+      if (activeDraftId) {
+        await removeOfflineDraft(activeDraftId);
+        setActiveDraftId(null);
+        await refreshOfflineDrafts();
+      }
       setDuplicateWindowOpen(false);
       setDuplicateCandidates([]);
       setScreen("success");
@@ -1027,169 +1492,144 @@ function App() {
     setPhotoName("");
     setDuplicateCandidates([]);
     setDuplicateWindowOpen(false);
+    setActiveDraftId(null);
     setScreen("home");
   };
 
   /* =========================================================
-     LOGIN ÚDRŽBÁRA
+     PRODUKČNÉ PRIHLÁSENIE
      ========================================================= */
 
-  const loginMaintenance =
-    async (
-      e: React.FormEvent
-    ) => {
-      e.preventDefault();
+  const loginStaff = async (
+    role: AuthRole,
+    name: string,
+    password: string
+  ) => {
+    const response = await fetchWithRetry(
+      "/api/auth/login",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role, name: name.trim(), password }),
+      },
+      12000,
+      0
+    );
+    const data = await response.json();
+    if (!response.ok || !data.success) {
+      throw new Error(data.error || "Prihlásenie sa nepodarilo.");
+    }
+    return data.session as { role: AuthRole; name: string };
+  };
 
-      if (!maintenanceName.trim()) {
-        showModal(
-          "error",
-          "Chýba meno",
-          "Pred prihlásením napíšte svoje meno."
-        );
-
-        return;
-      }
-
-      if (
-        maintenancePassword !==
-        "test1234"
-      ) {
-        showModal(
-          "error",
-          "Nesprávne heslo",
-          "Zadané heslo údržby nie je správne."
-        );
-
-        return;
-      }
-
+  const loginMaintenance = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!maintenanceName.trim() || !maintenancePassword) {
+      showModal("error", "Chýbajú údaje", "Zadajte svoje meno a heslo údržby.");
+      return;
+    }
+    try {
       setLoginLoadingRole("ÚDRŽBA");
+      const session = await loginStaff("maintenance", maintenanceName, maintenancePassword);
+      setLoggedMaintenanceName(session.name);
+      setMaintenancePassword("");
       const ok = await loadIssues();
-      if (!ok) {
-        setLoginLoadingRole(null);
-        return;
-      }
-      setLoggedMaintenanceName(maintenanceName.trim());
+      if (!ok) return;
       setMaintenanceFilter("new");
       setScreen("maintenance-dashboard");
-      setLoginLoadingRole(null);
       void loadAlerts("maintenance", false);
       window.setTimeout(() => void loadMessages("maintenance"), 0);
-    };
-
-  const logoutMaintenance = () => {
-    setMaintenancePassword("");
-    setMaintenanceName("");
-    setLoggedMaintenanceName("");
-    setSelectedIssue(null);
-    setIssueEvents([]);
-    setScreen("home");
+      window.setTimeout(() => void refreshPushStatus(), 0);
+    } catch (error) {
+      showModal("error", "Prihlásenie sa nepodarilo", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setLoginLoadingRole(null);
+    }
   };
 
-  /* =========================================================
-     LOGIN VEDÚCEHO
-     ========================================================= */
-
-  const loginManager =
-    async (
-      e: React.FormEvent
-    ) => {
-      e.preventDefault();
-
-      if (!managerName.trim()) {
-        showModal(
-          "error",
-          "Chýba meno",
-          "Pred prihlásením napíšte svoje meno."
-        );
-
-        return;
-      }
-
-      if (
-        managerPassword !==
-        "veduci1234"
-      ) {
-        showModal(
-          "error",
-          "Nesprávne heslo",
-          "Zadané heslo vedúceho údržby nie je správne."
-        );
-
-        return;
-      }
-
+  const loginManager = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!managerName.trim() || !managerPassword) {
+      showModal("error", "Chýbajú údaje", "Zadajte svoje meno a heslo vedúceho údržby.");
+      return;
+    }
+    try {
       setLoginLoadingRole("VEDÚCI ÚDRŽBY");
+      const session = await loginStaff("maintenance_manager", managerName, managerPassword);
+      setLoggedManagerName(session.name);
+      setManagerPassword("");
       const ok = await loadIssues();
-      if (!ok) {
-        setLoginLoadingRole(null);
-        return;
-      }
-      setLoggedManagerName(managerName.trim());
+      if (!ok) return;
       setManagerStatusFilter("all");
       setManagerAgeFilter(0);
       setManagerStaleFilter(0);
       setManagerSearch("");
       setScreen("manager-dashboard");
-      setLoginLoadingRole(null);
       void loadAlerts("management", true);
       window.setTimeout(() => void loadMessages("manager"), 0);
-    };
-
-  const logoutManager = () => {
-    setManagerName("");
-    setManagerPassword("");
-    setLoggedManagerName("");
-    setSelectedIssue(null);
-    setIssueEvents([]);
-    setScreen("home");
+      window.setTimeout(() => void refreshPushStatus(), 0);
+    } catch (error) {
+      showModal("error", "Prihlásenie sa nepodarilo", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setLoginLoadingRole(null);
+    }
   };
 
   const loginOperations = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!operationsName.trim()) {
-      showModal(
-        "error",
-        "Chýba meno",
-        "Pred prihlásením napíšte svoje meno."
-      );
+    if (!operationsName.trim() || !operationsPassword) {
+      showModal("error", "Chýbajú údaje", "Zadajte svoje meno a heslo prevádzkového manažéra.");
       return;
     }
-
-    if (operationsPassword !== "prevadzka1234") {
-      showModal(
-        "error",
-        "Nesprávne heslo",
-        "Zadané heslo prevádzkového manažéra nie je správne."
-      );
-      return;
-    }
-
-    setLoginLoadingRole("PREVÁDZKOVÝ MANAŽÉR");
-    const ok = await loadIssues();
-    if (!ok) {
+    try {
+      setLoginLoadingRole("PREVÁDZKOVÝ MANAŽÉR");
+      const session = await loginStaff("operations_manager", operationsName, operationsPassword);
+      setLoggedOperationsName(session.name);
+      setOperationsPassword("");
+      const ok = await loadIssues();
+      if (!ok) return;
+      await loadRatings();
+      setOperationsStatusFilter("all");
+      setOperationsAgeFilter(0);
+      setOperationsStaleFilter(0);
+      setScreen("operations-dashboard");
+      void loadAlerts("management", true);
+      window.setTimeout(() => void refreshPushStatus(), 0);
+    } catch (error) {
+      showModal("error", "Prihlásenie sa nepodarilo", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
       setLoginLoadingRole(null);
-      return;
     }
-    setLoggedOperationsName(operationsName.trim());
-    await loadRatings();
-    setOperationsStatusFilter("all");
-    setOperationsAgeFilter(0);
-    setOperationsStaleFilter(0);
-    setScreen("operations-dashboard");
-    setLoginLoadingRole(null);
-    void loadAlerts("management", true);
   };
 
-  const logoutOperations = () => {
+  const logoutStaff = async () => {
+    try {
+      if ("serviceWorker" in navigator && "PushManager" in window) {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          await fetch("/api/push/unsubscribe", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ endpoint: subscription.endpoint }),
+          });
+        }
+        await sendPushTokenToWorker(null);
+      }
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch (error) {
+      console.error(error);
+    }
+    clearStaffSessionState();
+    setMaintenanceName("");
+    setManagerName("");
     setOperationsName("");
-    setOperationsPassword("");
-    setLoggedOperationsName("");
-    setSelectedIssue(null);
-    setIssueEvents([]);
     setScreen("home");
   };
+
+  const logoutMaintenance = () => void logoutStaff();
+  const logoutManager = () => void logoutStaff();
+  const logoutOperations = () => void logoutStaff();
 
   /* =========================================================
      PREVZATIE ÚDRŽBÁROM
@@ -3327,6 +3767,70 @@ function App() {
     </div>
   ) : null;
 
+  const draftsWindow = draftsPanelOpen ? (
+    <div className="action-overlay feature-overlay drafts-overlay">
+      <div className="feature-dialog drafts-dialog">
+        <div className="feature-dialog-head">
+          <div>
+            <small>OFFLINE REŽIM</small>
+            <h2>Neodoslané hlásenia</h2>
+          </div>
+          <button onClick={() => setDraftsPanelOpen(false)}>×</button>
+        </div>
+
+        <div className="drafts-summary">
+          <div>
+            <strong>{offlineDrafts.length}</strong>
+            <span>{offlineDrafts.length === 1 ? "koncept v tomto zariadení" : "koncepty v tomto zariadení"}</span>
+          </div>
+          <button
+            type="button"
+            className="draft-sync-button"
+            disabled={!isOnline || syncingDrafts || offlineDrafts.length === 0}
+            onClick={() => void syncOfflineDrafts(true)}
+          >
+            {syncingDrafts ? "Synchronizujem…" : isOnline ? "↻ Odoslať možné" : "📴 Bez internetu"}
+          </button>
+        </div>
+
+        <p className="drafts-help">
+          Koncepty sú uložené iba v tomto telefóne alebo počítači. Ak systém nájde možnú duplicitu, koncept neodošle automaticky a nechá ho na kontrolu.
+        </p>
+
+        {offlineDrafts.length === 0 ? (
+          <div className="empty-box">Nemáte žiadne neodoslané offline hlásenia.</div>
+        ) : (
+          <div className="draft-list">
+            {offlineDrafts.map((draft) => (
+              <div className={`draft-card ${draft.needsReview ? "draft-card-review" : ""}`} key={draft.id}>
+                <div className="draft-card-top">
+                  <span>📴 Offline koncept</span>
+                  <small>{new Date(draft.createdAt).toLocaleString("sk-SK", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" })}</small>
+                </div>
+                <h3>{draft.description}</h3>
+                <p>📍 {draft.location}</p>
+                <small>👤 {draft.reporter}{draft.photoBlob ? " • 📷 fotografia uložená" : ""}</small>
+                {draft.needsReview && (
+                  <div className="draft-review-note">
+                    ⚠ Možná duplicitná závada – otvorte koncept a potvrďte, či ide o rovnakú závadu.
+                  </div>
+                )}
+                <div className="draft-card-actions">
+                  <button type="button" className="draft-open-button" onClick={() => editOfflineDraft(draft)}>
+                    Otvoriť a odoslať
+                  </button>
+                  <button type="button" className="draft-delete-button" onClick={() => void deleteOfflineDraft(draft.id)}>
+                    Zmazať
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   const loginLoadingWindow = loginLoadingRole ? (
     <div className="action-overlay feature-overlay loading-overlay">
       <div className="login-loading-card">
@@ -3339,7 +3843,7 @@ function App() {
   ) : null;
 
   const offlineWindow = !isOnline ? (
-    <div className="offline-banner">● Ste offline – zmeny nie je možné odoslať</div>
+    <div className="offline-banner">● Ste offline – nové hlásenie môžete uložiť ako koncept</div>
   ) : null;
 
   const globalWindows = (
@@ -3347,6 +3851,7 @@ function App() {
       {duplicateWindow}
       {messagesWindow}
       {alertsWindow}
+      {draftsWindow}
       {modalWindow}
       {loginLoadingWindow}
       {offlineWindow}
@@ -3686,6 +4191,19 @@ function App() {
      PREVÁDZKOVÝ MANAŽÉR - LOGIN
      ========================================================= */
 
+  if (!authReady) {
+    return (
+      <main className="app-shell">
+        <section className="app-card login-card session-restore-card">
+          <div className="loading-spinner" />
+          <h1>Načítavam aplikáciu</h1>
+          <p>Kontrolujem prihlásenie a pripravujem aktuálnu verziu.</p>
+          <small>v{APP_VERSION}</small>
+        </section>
+      </main>
+    );
+  }
+
   if (screen === "operations-login") {
     return (
       <>
@@ -3727,9 +4245,7 @@ function App() {
                 📊 Prihlásiť sa
               </button>
             </form>
-            <div className="test-password">
-              Testovacie heslo: <strong>prevadzka1234</strong>
-            </div>
+            <div className="login-security-note">🔒 Heslo je overované bezpečne na serveri.</div>
           </section>
         </main>
         {globalWindows}
@@ -4286,6 +4802,7 @@ function App() {
               <button className="feature-add-alert" onClick={() => { setAlertsAudience("management"); setAlertsPanelOpen(true); void loadAlerts("management", true); openAlertEditor(); }}>
                 <span>＋</span><div><strong>Nové upozornenie</strong><small>Publikovať pre areál</small></div>
               </button>
+              {pushFeatureButton}
             </div>
 
             <div className="operations-status-grid">
@@ -5262,6 +5779,7 @@ function App() {
               <button className="feature-add-alert" onClick={() => { setAlertsAudience("management"); setAlertsPanelOpen(true); void loadAlerts("management", true); openAlertEditor(); }}>
                 <span>＋</span><div><strong>Nové upozornenie</strong><small>Publikovať pre areál</small></div>
               </button>
+              {pushFeatureButton}
             </div>
 
             <div className="operations-status-grid">
@@ -5469,13 +5987,7 @@ function App() {
               </button>
 
             </form>
-
-            <div className="test-password">
-              Testovacie heslo:{" "}
-              <strong>
-                veduci1234
-              </strong>
-            </div>
+            <div className="login-security-note">🔒 Heslo je overované bezpečne na serveri.</div>
 
           </section>
 
@@ -6009,6 +6521,7 @@ function App() {
               <button onClick={() => openAlerts("maintenance", false)}>
                 <span>⚠️</span><div><strong>Upozornenia</strong><small>Aktuálne obmedzenia areálu</small></div>
               </button>
+              {pushFeatureButton}
             </div>
 
             <div className="stats-grid">
@@ -6146,6 +6659,10 @@ function App() {
                             issue.location
                           }
                         </p>
+
+                        <span className="issue-card-action-label">
+                          {issue.status === "new" ? "Prevziať závadu" : "Otvoriť závadu"}
+                        </span>
 
                       </div>
 
@@ -6304,13 +6821,7 @@ function App() {
               </button>
 
             </form>
-
-            <div className="test-password">
-              Testovacie heslo:{" "}
-              <strong>
-                test1234
-              </strong>
-            </div>
+            <div className="login-security-note">🔒 Heslo je overované bezpečne na serveri.</div>
 
           </section>
 
@@ -6429,6 +6940,20 @@ function App() {
                 }}
               />
 
+              {!isOnline && (
+                <div className="offline-report-note">
+                  <strong>📴 Bez internetu</strong>
+                  <span>Hlásenie vrátane fotografie sa uloží lokálne v tomto zariadení a odošle sa po obnovení pripojenia.</span>
+                </div>
+              )}
+
+              {activeDraftId && (
+                <div className="offline-report-note draft-edit-note">
+                  <strong>📝 Upravujete offline koncept</strong>
+                  <span>Po úspešnom odoslaní sa koncept z telefónu odstráni.</span>
+                </div>
+              )}
+
               <button
                 className="submit-button"
                 type="submit"
@@ -6438,6 +6963,10 @@ function App() {
               >
                 {reportLoading
                   ? "Odosielam..."
+                  : !isOnline
+                  ? "💾 Uložiť offline koncept"
+                  : activeDraftId
+                  ? "⚠️ Odoslať uložený koncept"
                   : "⚠️ Odoslať závadu"}
               </button>
 
@@ -6555,6 +7084,18 @@ function App() {
               </div>
 
             </button>
+
+            {offlineDrafts.length > 0 && (
+              <button className="home-drafts-button" onClick={() => setDraftsPanelOpen(true)}>
+                <div className="home-drafts-icon">📴</div>
+                <div>
+                  <strong>Offline koncepty</strong>
+                  <span>{offlineDrafts.length} {offlineDrafts.length === 1 ? "neodoslaný koncept" : "neodoslané koncepty"}</span>
+                </div>
+                <b>{offlineDrafts.length}</b>
+                <div className="role-arrow">›</div>
+              </button>
+            )}
 
             <button
               className={`home-alert-button ${publicAlerts.some((item) => item.alert_type === "critical") ? "home-alert-critical" : ""}`}
