@@ -45,6 +45,7 @@ type OperationsStatusFilter =
 type OperationsActionMode =
   | "return_manager"
   | "close"
+  | "reopen"
   | null;
 
 type MaintenanceActionMode =
@@ -57,6 +58,7 @@ type ManagerActionMode =
   | "return"
   | "close"
   | "operations"
+  | "reopen"
   | null;
 
 type Issue = {
@@ -165,7 +167,7 @@ type AlertItem = {
   archived_at: string | null;
 };
 
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.3";
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -1587,6 +1589,18 @@ function App() {
             `Odoslal: ${loggedManagerName}`
           );
         }
+
+        if (
+          managerActionMode ===
+          "reopen"
+        ) {
+          showModal(
+            "success",
+            "Úloha bola znovu otvorená",
+            "Úloha sa opäť zobrazí medzi novými úlohami údržby.",
+            `Znovu otvoril: ${loggedManagerName}`
+          );
+        }
       } catch (error) {
         console.error(error);
 
@@ -1673,9 +1687,13 @@ function App() {
         "success",
         operationsActionMode === "close"
           ? "Závada bola uzavretá"
+          : operationsActionMode === "reopen"
+          ? "Úloha bola znovu otvorená"
           : "Vrátené vedúcemu údržby",
         operationsActionMode === "close"
           ? "Prevádzkový manažér závadu uzavrel."
+          : operationsActionMode === "reopen"
+          ? "Úloha sa opäť zobrazí medzi novými úlohami údržby."
           : "Závada bola vrátená vedúcemu údržby na ďalšie riešenie.",
         `Rozhodol: ${loggedOperationsName}`
       );
@@ -2005,10 +2023,17 @@ function App() {
       return;
     }
 
-    if (!alertTitle.trim() || !alertLocation.trim() || !alertDescription.trim() || !alertStartDate || !alertEndDate) {
-      const message = "Vyplňte názov, miesto, popis a termín upozornenia.";
+    if (!alertStartDate || !alertEndDate) {
+      const message = "Vyberte termín upozornenia.";
       setAlertSubmitError(message);
-      showModal("error", "Chýbajú údaje", message);
+      showModal("error", "Chýba termín", message);
+      return;
+    }
+
+    if (!alertTitle.trim() && !alertDescription.trim()) {
+      const message = "Vyplňte aspoň názov alebo popis upozornenia.";
+      setAlertSubmitError(message);
+      showModal("error", "Chýba text upozornenia", message);
       return;
     }
 
@@ -2249,6 +2274,12 @@ function App() {
       case "operations_task_created":
         return "Nová úloha od prevádzkového manažéra";
 
+      case "reopened_by_manager":
+        return "Znovu otvorené vedúcim";
+
+      case "reopened_by_operations":
+        return "Znovu otvorené prevádzkovým manažérom";
+
       case "duplicate_report":
         return "Ďalšie hlásenie rovnakej závady";
 
@@ -2294,6 +2325,8 @@ function App() {
 
       case "returned_to_maintenance":
       case "returned_to_manager":
+      case "reopened_by_manager":
+      case "reopened_by_operations":
         return "↩️";
 
       case "operations_resolved":
@@ -2831,32 +2864,32 @@ function App() {
           </div>
 
           <div className="action-dialog-icon">
-            {managerActionMode ===
-            "return"
+            {managerActionMode === "return"
               ? "↩️"
-              : managerActionMode ===
-                "close"
+              : managerActionMode === "close"
               ? "✅"
+              : managerActionMode === "reopen"
+              ? "🔄"
               : "⬆️"}
           </div>
 
           <h2>
-            {managerActionMode ===
-            "return"
+            {managerActionMode === "return"
               ? "Vrátiť údržbe"
-              : managerActionMode ===
-                "close"
-              ? "Uzavrieť závadu"
+              : managerActionMode === "close"
+              ? "Uzavrieť úlohu"
+              : managerActionMode === "reopen"
+              ? "Znovu otvoriť úlohu"
               : "Posunúť prevádzkovému manažérovi"}
           </h2>
 
           <p>
-            {managerActionMode ===
-            "return"
+            {managerActionMode === "return"
               ? "Závada sa opäť objaví medzi novými závadami a môže ju prevziať údržbár."
-              : managerActionMode ===
-                "close"
-              ? "Uzavrite závadu a napíšte dôvod alebo vykonaný zásah."
+              : managerActionMode === "close"
+              ? "Úlohu môžete uzavrieť v ktoromkoľvek stave. Napíšte dôvod, napríklad nebude sa realizovať, riešené iným spôsobom alebo oprava je ukončená."
+              : managerActionMode === "reopen"
+              ? "Uzavretá úloha sa znovu otvorí ako nová a bude ju môcť prevziať údržba. Pôvodná história zostane zachovaná."
               : "Závadu posuniete na ďalšie rozhodnutie prevádzkovému manažérovi."}
           </p>
 
@@ -2874,12 +2907,12 @@ function App() {
               }
               rows={4}
               placeholder={
-                managerActionMode ===
-                "return"
+                managerActionMode === "return"
                   ? "Čo má údržba ešte vykonať?"
-                  : managerActionMode ===
-                    "close"
-                  ? "Prečo je možné závadu uzavrieť?"
+                  : managerActionMode === "close"
+                  ? "Dôvod uzavretia, napr. nebude sa realizovať..."
+                  : managerActionMode === "reopen"
+                  ? "Prečo sa má úloha znovu otvoriť?"
                   : "Prečo je potrebné rozhodnutie prevádzkového manažéra?"
               }
             />
@@ -2903,12 +2936,12 @@ function App() {
           >
             {actionLoading
               ? "Ukladám..."
-              : managerActionMode ===
-                "return"
+              : managerActionMode === "return"
               ? "↩️ Vrátiť údržbe"
-              : managerActionMode ===
-                "close"
-              ? "✅ Uzavrieť závadu"
+              : managerActionMode === "close"
+              ? "✅ Uzavrieť úlohu"
+              : managerActionMode === "reopen"
+              ? "🔄 Znovu otvoriť úlohu"
               : "⬆️ Posunúť manažérovi"}
           </button>
 
@@ -2932,16 +2965,20 @@ function App() {
         <div className="action-handle"></div>
         <div className="manager-dialog-role">PREVÁDZKOVÝ MANAŽÉR</div>
         <div className="action-dialog-icon">
-          {operationsActionMode === "close" ? "✅" : "↩️"}
+          {operationsActionMode === "close" ? "✅" : operationsActionMode === "reopen" ? "🔄" : "↩️"}
         </div>
         <h2>
           {operationsActionMode === "close"
-            ? "Uzavrieť závadu"
+            ? "Uzavrieť úlohu"
+            : operationsActionMode === "reopen"
+            ? "Znovu otvoriť úlohu"
             : "Vrátiť vedúcemu údržby"}
         </h2>
         <p>
           {operationsActionMode === "close"
-            ? "Uzavrite závadu a napíšte dôvod rozhodnutia."
+            ? "Úlohu môžete uzavrieť v ktoromkoľvek stave. Napíšte dôvod rozhodnutia."
+            : operationsActionMode === "reopen"
+            ? "Uzavretá úloha sa znovu otvorí ako nová a vráti sa údržbe. Pôvodná história zostane zachovaná."
             : "Napíšte, čo má vedúci údržby doplniť alebo zabezpečiť."}
         </p>
         <label className="action-label">
@@ -2969,7 +3006,9 @@ function App() {
           {actionLoading
             ? "Ukladám..."
             : operationsActionMode === "close"
-            ? "✅ Uzavrieť závadu"
+            ? "✅ Uzavrieť úlohu"
+            : operationsActionMode === "reopen"
+            ? "🔄 Znovu otvoriť úlohu"
             : "↩️ Vrátiť vedúcemu"}
         </button>
         <button
@@ -3222,9 +3261,9 @@ function App() {
                 <option value="info">🔵 Prevádzková informácia</option>
               </select>
             </label>
-            <label>Názov upozornenia<input value={alertTitle} onChange={(e) => setAlertTitle(e.target.value)} placeholder="Napr. Odstávka vody" /></label>
-            <label>Miesto<input value={alertLocation} onChange={(e) => setAlertLocation(e.target.value)} placeholder="Napr. Wellness zóna" /></label>
-            <label>Popis<textarea rows={4} value={alertDescription} onChange={(e) => setAlertDescription(e.target.value)} placeholder="Sem napíšte aj čas, napr. 22:00 – 24:00..." /></label>
+            <label>Názov upozornenia <small>(voliteľné, ak vyplníte popis)</small><input value={alertTitle} onChange={(e) => setAlertTitle(e.target.value)} placeholder="Napr. Odstávka vody" /></label>
+            <label>Miesto <small>(voliteľné)</small><input value={alertLocation} onChange={(e) => setAlertLocation(e.target.value)} placeholder="Napr. Wellness zóna" /></label>
+            <label>Popis <small>(voliteľné, ak vyplníte názov)</small><textarea rows={4} value={alertDescription} onChange={(e) => setAlertDescription(e.target.value)} placeholder="Sem napíšte aj čas, napr. 22:00 – 24:00..." /></label>
             <div className="alert-term-title">Termín</div>
             {alertCalendar}
             <div className="audience-title">Zobraziť komu</div>
@@ -3269,9 +3308,9 @@ function App() {
                     <div className="alert-icon">{info.icon}</div>
                     <div className="alert-card-body">
                       <div className="alert-card-top"><strong>{info.label}</strong><span className={`alert-status alert-status-${status}`}>{status === "active" ? "Aktívne" : status === "scheduled" ? "Naplánované" : "Ukončené"}</span></div>
-                      <h3>{alert.title}</h3>
-                      <p className="alert-location">📍 {alert.location}</p>
-                      <p>{alert.description}</p>
+                      <h3>{alert.title || alert.description || alertTypeInfo[alert.alert_type].label}</h3>
+                      {alert.location && <p className="alert-location">📍 {alert.location}</p>}
+                      {alert.description && alert.description !== alert.title && <p>{alert.description}</p>}
                       <small>📅 {alert.start_date === alert.end_date ? alert.start_date : `${alert.start_date} – ${alert.end_date}`}</small>
                       {alert.photo_key && <img src={getPhotoUrl(alert.photo_key)} alt="Upozornenie" />}
                       {(loggedManagerName || loggedOperationsName) && status !== "expired" && (
@@ -3715,6 +3754,8 @@ function App() {
           "operations_resolved",
           "operations_task_created",
           "resolved",
+          "reopened_by_manager",
+          "reopened_by_operations",
         ].includes(event.event_type) && Boolean(event.message || event.photo_key)
     );
 
@@ -3808,16 +3849,36 @@ function App() {
                     <span>↩️</span>
                     <div><strong>Vrátiť vedúcemu údržby</strong><small>Na doplnenie alebo ďalšie riešenie</small></div>
                   </button>
-                  <button
-                    className="issue-action-button action-resolve"
-                    onClick={() => openOperationsAction("close")}
-                  >
-                    <span>✅</span>
-                    <div><strong>Uzavrieť závadu</strong><small>Označiť ako ukončenú</small></div>
-                  </button>
                 </div>
               </>
             )}
+
+            <div className="issue-actions-title">SPRÁVA ÚLOHY</div>
+            <div className="issue-action-buttons">
+              {selectedIssue.status !== "closed" ? (
+                <button
+                  className="issue-action-button action-resolve"
+                  onClick={() => openOperationsAction("close")}
+                >
+                  <span>✅</span>
+                  <div>
+                    <strong>Uzavrieť úlohu</strong>
+                    <small>Uzavrieť v ktoromkoľvek stave s povinnou poznámkou</small>
+                  </div>
+                </button>
+              ) : (
+                <button
+                  className="issue-action-button manager-return-button"
+                  onClick={() => openOperationsAction("reopen")}
+                >
+                  <span>🔄</span>
+                  <div>
+                    <strong>Znovu otvoriť úlohu</strong>
+                    <small>Vrátiť medzi nové úlohy údržby</small>
+                  </div>
+                </button>
+              )}
+            </div>
 
             {selectedIssue.status === "closed" && (
               <div className="repair-rating-panel rating-live-panel">
@@ -4752,6 +4813,8 @@ function App() {
             "operations_task_created",
             "resolved",
             "duplicate_report",
+            "reopened_by_manager",
+            "reopened_by_operations",
           ].includes(event.event_type) &&
           Boolean(
             event.message ||
@@ -4947,27 +5010,6 @@ function App() {
                   </button>
 
                   <button
-                    className="issue-action-button action-resolve"
-                    onClick={() =>
-                      openManagerAction(
-                        "close"
-                      )
-                    }
-                  >
-                    <span>✅</span>
-
-                    <div>
-                      <strong>
-                        Uzavrieť závadu
-                      </strong>
-
-                      <small>
-                        Označiť ako vyriešenú
-                      </small>
-                    </div>
-                  </button>
-
-                  <button
                     className="issue-action-button manager-operations-button"
                     onClick={() =>
                       openManagerAction(
@@ -4991,6 +5033,33 @@ function App() {
                 </div>
               </>
             )}
+
+            <div className="issue-actions-title">SPRÁVA ÚLOHY</div>
+            <div className="issue-action-buttons">
+              {selectedIssue.status !== "closed" ? (
+                <button
+                  className="issue-action-button action-resolve"
+                  onClick={() => openManagerAction("close")}
+                >
+                  <span>✅</span>
+                  <div>
+                    <strong>Uzavrieť úlohu</strong>
+                    <small>Uzavrieť v ktoromkoľvek stave s povinnou poznámkou</small>
+                  </div>
+                </button>
+              ) : (
+                <button
+                  className="issue-action-button manager-return-button"
+                  onClick={() => openManagerAction("reopen")}
+                >
+                  <span>🔄</span>
+                  <div>
+                    <strong>Znovu otvoriť úlohu</strong>
+                    <small>Vrátiť medzi nové úlohy údržby</small>
+                  </div>
+                </button>
+              )}
+            </div>
 
             {selectedIssue.status ===
               "operations" && (
@@ -5635,6 +5704,8 @@ function App() {
             "operations_task_created",
             "resolved",
             "duplicate_report",
+            "reopened_by_manager",
+            "reopened_by_operations",
           ].includes(event.event_type) &&
           Boolean(
             event.message ||
@@ -6294,7 +6365,10 @@ function App() {
                 {publicAlerts.slice(0, 2).map((alert) => (
                   <button key={alert.id} type="button" className={`report-alert-mini alert-${alert.alert_type}`} onClick={() => openAlerts("public", false)}>
                     <span>{alertTypeInfo[alert.alert_type].icon}</span>
-                    <div><strong>{alert.title}</strong><small>{alert.location} • {alert.description}</small></div>
+                    <div>
+                      <strong>{alert.title || alert.description || alertTypeInfo[alert.alert_type].label}</strong>
+                      <small>{[alert.location, alert.description && alert.description !== alert.title ? alert.description : ""].filter(Boolean).join(" • ")}</small>
+                    </div>
                     <b>›</b>
                   </button>
                 ))}
