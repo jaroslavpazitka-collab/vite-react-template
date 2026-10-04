@@ -290,23 +290,36 @@ app.post("/api/issues/:id/manager-action", async (c) => {
     const action = String(formData.get("action") || "").trim();
     const message = String(formData.get("message") || "").trim();
     if (!managerName) return c.json({ success: false, error: "Chýba meno vedúceho údržby." }, 400);
-    if (!["return", "close", "operations"].includes(action)) return c.json({ success: false, error: "Neplatná akcia vedúceho." }, 400);
+    if (!["return", "close", "operations", "reopen"].includes(action)) return c.json({ success: false, error: "Neplatná akcia vedúceho." }, 400);
     if (!message) return c.json({ success: false, error: "Napíšte krátky komentár k akcii." }, 400);
+
     const currentIssue = await c.env.DB.prepare(`SELECT status FROM issues WHERE id=?`).bind(id).first<{ status: string }>();
     if (!currentIssue) return c.json({ success: false, error: "Závada nebola nájdená." }, 404);
-    if (!["manager", "material"].includes(currentIssue.status)) return c.json({ success: false, error: "Táto závada už nie je u vedúceho údržby." }, 409);
+
+    if (["return", "operations"].includes(action) && !["manager", "material"].includes(currentIssue.status)) {
+      return c.json({ success: false, error: "Táto akcia je dostupná iba pri závade u vedúceho alebo čakajúcej na materiál." }, 409);
+    }
+    if (action === "close" && currentIssue.status === "closed") {
+      return c.json({ success: false, error: "Úloha je už uzavretá." }, 409);
+    }
+    if (action === "reopen" && currentIssue.status !== "closed") {
+      return c.json({ success: false, error: "Znovu otvoriť je možné iba uzavretú úlohu." }, 409);
+    }
+
     let photoKey: string | null = null;
     const photo = formData.get("photo");
     if (photo instanceof File && photo.size > 0) {
       let folder = "issues/manager-actions";
       if (action === "close") folder = "issues/manager-resolved";
       if (action === "operations") folder = "issues/operations";
+      if (action === "reopen") folder = "issues/reopened";
       try {
         photoKey = await savePhoto(c.env.PHOTOS, photo, folder);
       } catch (error) {
         return c.json({ success: false, error: error instanceof Error ? error.message : "Fotografiu sa nepodarilo uložiť." }, 400);
       }
     }
+
     let eventType = "";
     if (action === "return") {
       await c.env.DB.prepare(`
@@ -314,21 +327,26 @@ app.post("/api/issues/:id/manager-action", async (c) => {
         WHERE id=? AND status IN ('manager','material')
       `).bind(managerName, id).run();
       eventType = "returned_to_maintenance";
-    }
-    if (action === "close") {
+    } else if (action === "close") {
       await c.env.DB.prepare(`
         UPDATE issues SET status='closed',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP
-        WHERE id=? AND status IN ('manager','material')
+        WHERE id=? AND status<>'closed'
       `).bind(managerName, id).run();
       eventType = "manager_resolved";
-    }
-    if (action === "operations") {
+    } else if (action === "operations") {
       await c.env.DB.prepare(`
         UPDATE issues SET status='operations',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status IN ('manager','material')
       `).bind(managerName, id).run();
       eventType = "escalated_to_operations";
+    } else if (action === "reopen") {
+      await c.env.DB.prepare(`
+        UPDATE issues SET status='new',current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        WHERE id=? AND status='closed'
+      `).bind(managerName, id).run();
+      eventType = "reopened_by_manager";
     }
+
     await c.env.DB.prepare(`
       INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
       VALUES (?, ?, 'maintenance_manager', ?, ?, ?, CURRENT_TIMESTAMP)
@@ -350,32 +368,57 @@ app.post("/api/issues/:id/operations-action", async (c) => {
     const action = String(formData.get("action") || "").trim();
     const message = String(formData.get("message") || "").trim();
     if (!operationsName) return c.json({ success: false, error: "Chýba meno prevádzkového manažéra." }, 400);
-    if (!["return_manager", "close"].includes(action)) return c.json({ success: false, error: "Neplatná akcia prevádzkového manažéra." }, 400);
+    if (!["return_manager", "close", "reopen"].includes(action)) return c.json({ success: false, error: "Neplatná akcia prevádzkového manažéra." }, 400);
     if (!message) return c.json({ success: false, error: "Napíšte krátky komentár k rozhodnutiu." }, 400);
+
     const currentIssue = await c.env.DB.prepare(`SELECT status FROM issues WHERE id=?`).bind(id).first<{ status: string }>();
     if (!currentIssue) return c.json({ success: false, error: "Závada nebola nájdená." }, 404);
-    if (currentIssue.status !== "operations") return c.json({ success: false, error: "Táto závada už nie je na rozhodnutí prevádzkového manažéra." }, 409);
+    if (action === "return_manager" && currentIssue.status !== "operations") {
+      return c.json({ success: false, error: "Vrátiť vedúcemu je možné iba závadu, ktorá je u prevádzkového manažéra." }, 409);
+    }
+    if (action === "close" && currentIssue.status === "closed") {
+      return c.json({ success: false, error: "Úloha je už uzavretá." }, 409);
+    }
+    if (action === "reopen" && currentIssue.status !== "closed") {
+      return c.json({ success: false, error: "Znovu otvoriť je možné iba uzavretú úlohu." }, 409);
+    }
+
     let photoKey: string | null = null;
     const photo = formData.get("photo");
     if (photo instanceof File && photo.size > 0) {
       try {
-        photoKey = await savePhoto(c.env.PHOTOS, photo, action === "close" ? "issues/operations-resolved" : "issues/operations-returned");
+        const folder = action === "close"
+          ? "issues/operations-resolved"
+          : action === "reopen"
+          ? "issues/reopened"
+          : "issues/operations-returned";
+        photoKey = await savePhoto(c.env.PHOTOS, photo, folder);
       } catch (error) {
         return c.json({ success: false, error: error instanceof Error ? error.message : "Fotografiu sa nepodarilo uložiť." }, 400);
       }
     }
-    const eventType = action === "close" ? "operations_resolved" : "returned_to_manager";
+
+    let eventType = "";
     if (action === "close") {
       await c.env.DB.prepare(`
         UPDATE issues SET status='closed',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP
-        WHERE id=? AND status='operations'
+        WHERE id=? AND status<>'closed'
       `).bind(operationsName, id).run();
+      eventType = "operations_resolved";
+    } else if (action === "reopen") {
+      await c.env.DB.prepare(`
+        UPDATE issues SET status='new',current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        WHERE id=? AND status='closed'
+      `).bind(operationsName, id).run();
+      eventType = "reopened_by_operations";
     } else {
       await c.env.DB.prepare(`
         UPDATE issues SET status='manager',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status='operations'
       `).bind(operationsName, id).run();
+      eventType = "returned_to_manager";
     }
+
     await c.env.DB.prepare(`
       INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
       VALUES (?, ?, 'operations_manager', ?, ?, ?, CURRENT_TIMESTAMP)
@@ -915,8 +958,11 @@ app.post("/api/alerts", async (c) => {
     if (!["critical", "outage", "planned", "info"].includes(alertType)) {
       return c.json({ success: false, error: "Neplatný typ upozornenia." }, 400);
     }
-    if (!title || !location || !description || !startDate || !endDate || !createdByName) {
-      return c.json({ success: false, error: "Vyplňte názov, miesto, popis a termín upozornenia." }, 400);
+    if (!startDate || !endDate || !createdByName) {
+      return c.json({ success: false, error: "Vyberte termín upozornenia." }, 400);
+    }
+    if (!title && !description) {
+      return c.json({ success: false, error: "Vyplňte aspoň názov alebo popis upozornenia." }, 400);
     }
     if (startDate > endDate) {
       return c.json({ success: false, error: "Koniec upozornenia nemôže byť pred začiatkom." }, 400);
