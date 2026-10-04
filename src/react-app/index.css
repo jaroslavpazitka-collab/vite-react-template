@@ -748,3 +748,31 @@ button:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+input,
+textarea,
+select {
+  background-color: #ffffff !important;
+  color: #1f1f1f !important;
+  -webkit-text-fill-color: #1f1f1f !important;
+  caret-color: #f47a00;
+  color-scheme: light;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #9a9a9a !important;
+  -webkit-text-fill-color: #9a9a9a !important;
+  opacity: 1;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  background-color: #ffffff !important;
+  color: #1f1f1f !important;
+  -webkit-text-fill-color: #1f1f1f !important;
+}
+
+html {
+  color-scheme: light;
+}
