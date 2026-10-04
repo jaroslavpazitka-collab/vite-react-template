@@ -2552,3 +2552,39 @@ img {
   .feature-dialog { padding:15px; border-radius:22px; }
   .feature-dialog-head { top:-15px; margin:-15px -15px 13px; padding:15px; }
 }
+
+
+/* =========================================
+   v1.4.1 - OPRAVA PUBLIKOVANIA UPOZORNENÍ
+   ========================================= */
+
+/* Potvrdzovací/chybový modal musí byť nad oknom upozornení. */
+.custom-modal-overlay {
+  z-index: 21000 !important;
+}
+
+.alert-submit-error {
+  margin: 14px 0 2px;
+  padding: 12px 13px;
+  border: 1px solid #f4b1b1;
+  border-radius: 13px;
+  background: #fff1f1;
+  color: #9e2222;
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+.alert-submit-error strong,
+.alert-submit-error span {
+  display: block;
+}
+
+.alert-submit-error span {
+  margin-top: 4px;
+  color: #7f3434;
+}
+
+.alert-submit-button:disabled {
+  opacity: .66;
+  cursor: wait;
+}
