@@ -332,8 +332,8 @@ async function getVapidKeys(env: Bindings) {
     true,
     ["sign", "verify"]
   ) as CryptoKeyPair;
-  const publicJwk = await crypto.subtle.exportKey("jwk", keyPair.publicKey);
-  const privateJwk = await crypto.subtle.exportKey("jwk", keyPair.privateKey);
+  const publicJwk = (await crypto.subtle.exportKey("jwk", keyPair.publicKey)) as JsonWebKey;
+  const privateJwk = (await crypto.subtle.exportKey("jwk", keyPair.privateKey)) as JsonWebKey;
   if (!publicJwk.x || !publicJwk.y) throw new Error("Nepodarilo sa vytvoriť VAPID verejný kľúč.");
   const rawPublic = new Uint8Array(65);
   rawPublic[0] = 4;
