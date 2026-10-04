@@ -32,6 +32,97 @@ async function savePhoto(
   return key;
 }
 
+
+let featureTablesReady = false;
+
+async function ensureFeatureTables(db: D1Database) {
+  if (featureTablesReady) return;
+
+  await db.batch([
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS maintenance_messages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sender_name TEXT NOT NULL,
+        category TEXT NOT NULL,
+        subject TEXT NOT NULL,
+        message TEXT NOT NULL,
+        photo_key TEXT,
+        status TEXT NOT NULL DEFAULT 'open',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        closed_at TEXT
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS maintenance_message_replies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        message_id INTEGER NOT NULL,
+        actor_role TEXT NOT NULL,
+        actor_name TEXT NOT NULL,
+        message TEXT NOT NULL,
+        photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (message_id) REFERENCES maintenance_messages(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS alerts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        alert_type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        location TEXT NOT NULL,
+        description TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        audiences TEXT NOT NULL DEFAULT 'public,maintenance,management',
+        photo_key TEXT,
+        created_by_role TEXT NOT NULL,
+        created_by_name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        archived_at TEXT
+      )
+    `),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_messages_status ON maintenance_messages(status)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_message_replies_message_id ON maintenance_message_replies(message_id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_alerts_dates ON alerts(start_date, end_date)`),
+  ]);
+
+  featureTablesReady = true;
+}
+
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function keywords(value: string) {
+  const stop = new Set([
+    "a", "aj", "ale", "ako", "alebo", "bez", "by", "do", "je", "na", "nie",
+    "od", "po", "pre", "pri", "sa", "si", "sme", "som", "su", "to", "tu", "v",
+    "vo", "z", "za", "ze", "ked", "ktory", "ktora", "ktore", "toto", "tento",
+  ]);
+
+  return new Set(
+    normalizeSearchText(value)
+      .split(" ")
+      .filter((word) => word.length >= 3 && !stop.has(word))
+  );
+}
+
+function overlapScore(a: Set<string>, b: Set<string>) {
+  if (!a.size || !b.size) return 0;
+  let intersection = 0;
+  for (const word of a) if (b.has(word)) intersection += 1;
+  const union = new Set([...a, ...b]).size;
+  return union ? intersection / union : 0;
+}
+
 app.get("/api/photo", async (c) => {
   try {
     const key = c.req.query("key");
@@ -457,6 +548,444 @@ app.get("/api/issues/:id/events", async (c) => {
     console.error(error);
     return c.json({ success: false, error: "Nepodarilo sa načítať históriu." }, 500);
   }
+});
+
+
+/* =========================================================
+   DUPLICITY HLÁSENÍ
+   ========================================================= */
+
+app.post("/api/issues/duplicates", async (c) => {
+  try {
+    const body = await c.req.json();
+    const location = String(body.location || "").trim();
+    const description = String(body.description || "").trim();
+
+    if (!location || !description) {
+      return c.json({ success: true, candidates: [] });
+    }
+
+    const result = await c.env.DB.prepare(`
+      SELECT id, location, description, photo_key, status, created_at, updated_at
+      FROM issues
+      WHERE status <> 'closed'
+      ORDER BY id DESC
+      LIMIT 120
+    `).all<{
+      id: number;
+      location: string;
+      description: string;
+      photo_key: string | null;
+      status: string;
+      created_at: string;
+      updated_at: string;
+    }>();
+
+    const newLocation = normalizeSearchText(location);
+    const newLocationWords = keywords(location);
+    const newDescription = normalizeSearchText(description);
+    const newDescriptionWords = keywords(description);
+
+    const candidates = (result.results || [])
+      .map((issue) => {
+        const issueLocation = normalizeSearchText(issue.location || "");
+        const issueDescription = normalizeSearchText(issue.description || "");
+
+        const locationExact =
+          issueLocation === newLocation ||
+          issueLocation.includes(newLocation) ||
+          newLocation.includes(issueLocation);
+
+        const locationSimilarity = locationExact
+          ? 1
+          : overlapScore(newLocationWords, keywords(issue.location || ""));
+
+        const descriptionSimilarity = overlapScore(
+          newDescriptionWords,
+          keywords(issue.description || "")
+        );
+
+        const containsPhrase =
+          newDescription.length >= 12 &&
+          (issueDescription.includes(newDescription) ||
+            newDescription.includes(issueDescription));
+
+        const score = Math.min(
+          1,
+          locationSimilarity * 0.46 +
+            descriptionSimilarity * 0.54 +
+            (containsPhrase ? 0.18 : 0)
+        );
+
+        return { ...issue, score };
+      })
+      .filter((issue) => issue.score >= 0.34)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 3);
+
+    return c.json({ success: true, candidates });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Kontrola podobných závad zlyhala." }, 500);
+  }
+});
+
+app.post("/api/issues/:id/duplicate-report", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) {
+      return c.json({ success: false, error: "Neplatné číslo závady." }, 400);
+    }
+
+    const issue = await c.env.DB.prepare(`
+      SELECT id, status FROM issues WHERE id=?
+    `).bind(id).first<{ id: number; status: string }>();
+
+    if (!issue || issue.status === "closed") {
+      return c.json({ success: false, error: "Táto závada už nie je otvorená." }, 409);
+    }
+
+    const formData = await c.req.formData();
+    const reporterName = String(formData.get("reporter_name") || "").trim();
+    const location = String(formData.get("location") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+
+    if (!reporterName || !description) {
+      return c.json({ success: false, error: "Chýba meno alebo popis hlásenia." }, 400);
+    }
+
+    let photoKey: string | null = null;
+    const photo = formData.get("photo");
+    if (photo instanceof File && photo.size > 0) {
+      photoKey = await savePhoto(c.env.PHOTOS, photo, "issues/duplicate-reports");
+    }
+
+    const message = [
+      "Ďalšie hlásenie rovnakej závady.",
+      location ? `Miesto: ${location}.` : "",
+      `Popis: ${description}`,
+    ].filter(Boolean).join(" ");
+
+    await c.env.DB.prepare(`
+      INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
+      VALUES (?, 'duplicate_report', 'reporter', ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(id, reporterName, message, photoKey).run();
+
+    await c.env.DB.prepare(`
+      UPDATE issues SET updated_at=CURRENT_TIMESTAMP WHERE id=?
+    `).bind(id).run();
+
+    return c.json({ success: true, issue_id: id });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Hlásenie sa nepodarilo pripojiť k existujúcej závade." }, 500);
+  }
+});
+
+/* =========================================================
+   SPRÁVY ÚDRŽBA -> VEDÚCI
+   ========================================================= */
+
+app.get("/api/messages", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const role = String(c.req.query("role") || "");
+    const maintenanceName = String(c.req.query("maintenance_name") || "").trim();
+
+    let result;
+    if (role === "manager") {
+      result = await c.env.DB.prepare(`
+        SELECT m.*,
+          (SELECT COUNT(*) FROM maintenance_message_replies r WHERE r.message_id=m.id) AS reply_count
+        FROM maintenance_messages m
+        ORDER BY CASE WHEN m.status='open' THEN 0 ELSE 1 END, m.updated_at DESC, m.id DESC
+      `).all();
+    } else {
+      result = await c.env.DB.prepare(`
+        SELECT m.*,
+          (SELECT COUNT(*) FROM maintenance_message_replies r WHERE r.message_id=m.id) AS reply_count
+        FROM maintenance_messages m
+        WHERE LOWER(TRIM(m.sender_name)) = LOWER(TRIM(?))
+        ORDER BY m.updated_at DESC, m.id DESC
+      `).bind(maintenanceName).all();
+    }
+
+    return c.json({ success: true, messages: result.results });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Správy sa nepodarilo načítať." }, 500);
+  }
+});
+
+app.post("/api/messages", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const formData = await c.req.formData();
+    const senderName = String(formData.get("sender_name") || "").trim();
+    const category = String(formData.get("category") || "ine").trim();
+    const subject = String(formData.get("subject") || "").trim();
+    const message = String(formData.get("message") || "").trim();
+
+    if (!senderName || !subject || !message) {
+      return c.json({ success: false, error: "Vyplňte predmet a text správy." }, 400);
+    }
+
+    let photoKey: string | null = null;
+    const photo = formData.get("photo");
+    if (photo instanceof File && photo.size > 0) {
+      photoKey = await savePhoto(c.env.PHOTOS, photo, "messages/original");
+    }
+
+    const result = await c.env.DB.prepare(`
+      INSERT INTO maintenance_messages(sender_name,category,subject,message,photo_key,status,created_at,updated_at)
+      VALUES (?, ?, ?, ?, ?, 'open', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).bind(senderName, category, subject, message, photoKey).run();
+
+    return c.json({ success: true, message_id: result.meta.last_row_id });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Správu sa nepodarilo odoslať." }, 500);
+  }
+});
+
+app.get("/api/messages/:id/replies", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const id = Number(c.req.param("id"));
+    const result = await c.env.DB.prepare(`
+      SELECT * FROM maintenance_message_replies
+      WHERE message_id=? ORDER BY id ASC
+    `).bind(id).all();
+    return c.json({ success: true, replies: result.results });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Odpovede sa nepodarilo načítať." }, 500);
+  }
+});
+
+app.post("/api/messages/:id/reply", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const id = Number(c.req.param("id"));
+    const formData = await c.req.formData();
+    const actorRole = String(formData.get("actor_role") || "").trim();
+    const actorName = String(formData.get("actor_name") || "").trim();
+    const message = String(formData.get("message") || "").trim();
+
+    if (!actorName || !message || !["maintenance", "maintenance_manager"].includes(actorRole)) {
+      return c.json({ success: false, error: "Chýba meno alebo text odpovede." }, 400);
+    }
+
+    let photoKey: string | null = null;
+    const photo = formData.get("photo");
+    if (photo instanceof File && photo.size > 0) {
+      photoKey = await savePhoto(c.env.PHOTOS, photo, "messages/replies");
+    }
+
+    await c.env.DB.prepare(`
+      INSERT INTO maintenance_message_replies(message_id,actor_role,actor_name,message,photo_key,created_at)
+      VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(id, actorRole, actorName, message, photoKey).run();
+
+    await c.env.DB.prepare(`
+      UPDATE maintenance_messages SET updated_at=CURRENT_TIMESTAMP WHERE id=?
+    `).bind(id).run();
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Odpoveď sa nepodarilo odoslať." }, 500);
+  }
+});
+
+app.post("/api/messages/:id/resolve", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const id = Number(c.req.param("id"));
+    const body = await c.req.json();
+    const managerName = String(body.manager_name || "").trim();
+    if (!managerName) return c.json({ success: false, error: "Chýba meno vedúceho." }, 400);
+
+    await c.env.DB.prepare(`
+      UPDATE maintenance_messages
+      SET status='resolved',updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP
+      WHERE id=?
+    `).bind(id).run();
+
+    await c.env.DB.prepare(`
+      INSERT INTO maintenance_message_replies(message_id,actor_role,actor_name,message,created_at)
+      VALUES (?, 'maintenance_manager', ?, 'Správa bola označená ako vybavená.', CURRENT_TIMESTAMP)
+    `).bind(id, managerName).run();
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Správu sa nepodarilo uzavrieť." }, 500);
+  }
+});
+
+app.post("/api/messages/:id/create-task", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const id = Number(c.req.param("id"));
+    const body = await c.req.json();
+    const managerName = String(body.manager_name || "").trim();
+    if (!managerName) return c.json({ success: false, error: "Chýba meno vedúceho." }, 400);
+
+    const message = await c.env.DB.prepare(`
+      SELECT * FROM maintenance_messages WHERE id=?
+    `).bind(id).first<any>();
+    if (!message) return c.json({ success: false, error: "Správa nebola nájdená." }, 404);
+
+    const result = await c.env.DB.prepare(`
+      INSERT INTO issues(reporter_name,location,description,photo_key,status,last_actor_name,created_at,updated_at)
+      VALUES (?, ?, ?, ?, 'new', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).bind(
+      managerName,
+      "Požiadavka údržby",
+      `${message.subject}: ${message.message}`,
+      message.photo_key || null,
+      managerName
+    ).run();
+
+    const issueId = result.meta.last_row_id;
+    await c.env.DB.prepare(`
+      INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
+      VALUES (?, 'message_converted_to_task', 'maintenance_manager', ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(issueId, managerName, `Vytvorené zo správy údržbára ${message.sender_name}.`, message.photo_key || null).run();
+
+    await c.env.DB.prepare(`
+      UPDATE maintenance_messages SET status='converted',updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP WHERE id=?
+    `).bind(id).run();
+
+    return c.json({ success: true, issue_id: issueId });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Zo správy sa nepodarilo vytvoriť úlohu." }, 500);
+  }
+});
+
+/* =========================================================
+   UPOZORNENIA A ODSTÁVKY
+   ========================================================= */
+
+app.get("/api/alerts", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const audience = String(c.req.query("audience") || "public").trim();
+    const includeAll = c.req.query("all") === "1";
+    const today = String(c.req.query("today") || "").trim();
+
+    let sql = `
+      SELECT * FROM alerts
+      WHERE archived_at IS NULL
+        AND (',' || audiences || ',') LIKE ?
+    `;
+    const params: unknown[] = [`%,${audience},%`];
+
+    if (!includeAll && /^\d{4}-\d{2}-\d{2}$/.test(today)) {
+      sql += ` AND start_date <= ? AND end_date >= ?`;
+      params.push(today, today);
+    }
+
+    sql += ` ORDER BY start_date ASC, id DESC`;
+
+    const result = await c.env.DB.prepare(sql).bind(...params).all();
+    return c.json({ success: true, alerts: result.results });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Upozornenia sa nepodarilo načítať." }, 500);
+  }
+});
+
+app.post("/api/alerts", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const formData = await c.req.formData();
+    const alertType = String(formData.get("alert_type") || "info").trim();
+    const title = String(formData.get("title") || "").trim();
+    const location = String(formData.get("location") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    const startDate = String(formData.get("start_date") || "").trim();
+    const endDate = String(formData.get("end_date") || "").trim();
+    const audiences = String(formData.get("audiences") || "public,maintenance,management").trim();
+    const createdByRole = String(formData.get("created_by_role") || "").trim();
+    const createdByName = String(formData.get("created_by_name") || "").trim();
+
+    if (!["critical", "outage", "planned", "info"].includes(alertType)) {
+      return c.json({ success: false, error: "Neplatný typ upozornenia." }, 400);
+    }
+    if (!title || !location || !description || !startDate || !endDate || !createdByName) {
+      return c.json({ success: false, error: "Vyplňte názov, miesto, popis a termín upozornenia." }, 400);
+    }
+    if (startDate > endDate) {
+      return c.json({ success: false, error: "Koniec upozornenia nemôže byť pred začiatkom." }, 400);
+    }
+
+    let photoKey: string | null = null;
+    const photo = formData.get("photo");
+    if (photo instanceof File && photo.size > 0) {
+      photoKey = await savePhoto(c.env.PHOTOS, photo, "alerts");
+    }
+
+    const result = await c.env.DB.prepare(`
+      INSERT INTO alerts(
+        alert_type,title,location,description,start_date,end_date,audiences,photo_key,
+        created_by_role,created_by_name,created_at,updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).bind(
+      alertType, title, location, description, startDate, endDate, audiences, photoKey,
+      createdByRole, createdByName
+    ).run();
+
+    return c.json({ success: true, alert_id: result.meta.last_row_id });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Upozornenie sa nepodarilo uložiť." }, 500);
+  }
+});
+
+app.post("/api/alerts/:id/archive", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const id = Number(c.req.param("id"));
+    await c.env.DB.prepare(`
+      UPDATE alerts SET archived_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?
+    `).bind(id).run();
+    return c.json({ success: true });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Upozornenie sa nepodarilo ukončiť." }, 500);
+  }
+});
+
+/* =========================================================
+   DIAGNOSTIKA / API 404
+   ========================================================= */
+
+app.get("/api/features-health", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    return c.json({
+      success: true,
+      alerts: true,
+      messages: true,
+      version: "1.4.2",
+    });
+  } catch (error) {
+    console.error(error);
+    return c.json({
+      success: false,
+      error: "Doplnkové tabuľky sa nepodarilo pripraviť.",
+    }, 500);
+  }
+});
+
+app.all("/api/*", (c) => {
+  return c.json({
+    success: false,
+    error: `API endpoint neexistuje: ${c.req.method} ${c.req.path}`,
+  }, 404);
 });
 
 export default app;
