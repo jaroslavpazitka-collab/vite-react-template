@@ -5519,53 +5519,66 @@ function App() {
 
         <section className="app-card home-card">
 
-          <div className="brand-area">
+          <div className="home-hero">
 
-            <img
-              src={tatralandiaLogo}
-              alt="Tatralandia"
-              className="tatralandia-logo"
-            />
+            <div className="brand-area">
 
-            <div className="brand-description">
-              INTERNÝ SYSTÉM ÚDRŽBY
+              <img
+                src={tatralandiaLogo}
+                alt="Tatralandia"
+                className="tatralandia-logo"
+              />
+
+              <div className="brand-description">
+                INTERNÝ SYSTÉM ÚDRŽBY
+              </div>
+
             </div>
+
+            <h1 className="home-title">
+              Aplikácia údržby
+            </h1>
+
+            <p className="home-subtitle">
+              Rýchle nahlasovanie, efektívne riešenie a jasný prehľad o údržbe Tatralandie.
+            </p>
+
+            <button
+              className="report-button"
+              onClick={() =>
+                setScreen("report")
+              }
+            >
+
+              <div className="report-button-icon">
+                +
+              </div>
+
+              <div className="report-button-content">
+                <strong>
+                  Nahlásiť závadu
+                </strong>
+
+                <span>
+                  Nové hlásenie pre údržbu
+                </span>
+              </div>
+
+              <div className="arrow">
+                ›
+              </div>
+
+            </button>
 
           </div>
 
-          <button
-            className="report-button"
-            onClick={() =>
-              setScreen("report")
-            }
-          >
+          <div className="home-content">
 
-            <div className="report-button-icon">
-              ⚠️
+            <div className="employee-login-title">
+              POKRAČOVAŤ AKO
             </div>
 
-            <div className="report-button-content">
-              <strong>
-                Nahlásiť závadu
-              </strong>
-
-              <span>
-                Odoslať nové hlásenie
-                údržbe
-              </span>
-            </div>
-
-            <div className="arrow">
-              ›
-            </div>
-
-          </button>
-
-          <div className="employee-login-title">
-            PRÍSTUP PRE PRACOVNÍKOV
-          </div>
-
-          <div className="role-buttons">
+            <div className="role-buttons">
 
             <button
               className="role-button"
@@ -5648,13 +5661,14 @@ function App() {
 
           </div>
 
-          <div className="footer-line">
-            Tatralandia • interný systém
-            hlásenia závad
-          </div>
+            <div className="footer-line">
+              Tatralandia • interný systém hlásenia závad
+            </div>
 
-          <div className="app-author">
-            Autor aplikácie: Jaroslav Pažítka
+            <div className="app-author">
+              Autor aplikácie: Jaroslav Pažítka
+            </div>
+
           </div>
 
         </section>
