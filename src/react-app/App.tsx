@@ -1,5 +1,6 @@
 import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import tatralandiaLogo from "./assets/tatralandia-logo.jpg";
+import tatralandiaHero from "./assets/tatralandia-hero.jpg";
 import "./App.css";
 
 type Screen =
@@ -7,6 +8,15 @@ type Screen =
   | "report"
   | "success"
   | "maintenance-login"
+  | "lifeguard-login"
+  | "sanitation-login"
+  | "staff-portal"
+  | "staff-inbox"
+  | "staff-my-reports"
+  | "staff-issue"
+  | "pumps"
+  | "pump-new"
+  | "pump-detail"
   | "maintenance-dashboard"
   | "maintenance-issue"
   | "maintenance-history"
@@ -64,11 +74,18 @@ type ManagerActionMode =
 type Issue = {
   id: number;
   reporter_name: string;
+  reporter_role?: string | null;
   location: string;
   description: string;
   photo_key: string | null;
+  photo_keys?: string[];
   status: string;
   current_worker_name: string | null;
+  assignee_role?: string | null;
+  assignee_name?: string | null;
+  destination_role?: string | null;
+  issue_type?: string | null;
+  source_record_id?: number | null;
   last_actor_name: string | null;
   created_at: string;
   updated_at: string;
@@ -86,6 +103,7 @@ type IssueEvent = {
   actor_name: string | null;
   message: string | null;
   photo_key: string | null;
+  photo_keys?: string[];
   created_at: string;
 };
 
@@ -167,22 +185,74 @@ type AlertItem = {
   archived_at: string | null;
 };
 
-type AuthRole = "maintenance" | "maintenance_manager" | "operations_manager";
+type AuthRole = "maintenance" | "maintenance_manager" | "operations_manager" | "lifeguard" | "sanitation";
 type PushState = "unsupported" | "inactive" | "active" | "denied" | "loading";
+
+type OfflineDraftPhoto = { blob: Blob; name: string; type: string };
 
 type OfflineDraft = {
   id: string;
   reporter: string;
   location: string;
   description: string;
+  destinationRole?: AuthRole;
   photoBlob: Blob | null;
   photoName: string;
   photoType: string;
+  photoBlobs?: OfflineDraftPhoto[];
   createdAt: string;
   needsReview: boolean;
 };
 
-const APP_VERSION = "1.5.0";
+type PumpRecord = {
+  id: number;
+  location: string | null;
+  pump_name: string | null;
+  power_kw: string | null;
+  description: string | null;
+  photo_key: string | null;
+  status: string;
+  created_by_role: string;
+  created_by_name: string;
+  created_at: string;
+  updated_at: string;
+  closed_at: string | null;
+  event_count?: number;
+};
+
+type PumpEvent = {
+  id: number;
+  pump_id: number;
+  event_type: string;
+  actor_role: string;
+  actor_name: string;
+  message: string | null;
+  photo_key: string | null;
+  created_at: string;
+};
+
+const APP_VERSION = "1.6.0";
+
+const STAFF_DIRECTORY: Record<AuthRole, string[]> = {
+  maintenance: [
+    "Sliačan Dávid", "Lipka František", "Uličný Miroslav", "Gejdoš Ondrej", "Šírica Peter",
+    "Mikuš Mikuláš", "Chovan Július", "Pisarčík Jaroslav", "Krajčovič Ivan", "Pšenko Pavol",
+  ],
+  maintenance_manager: ["Ľuboš Trizna", "Peter Hrabal", "Jaroslav Pažítka"],
+  operations_manager: ["Vladimír Moravčík"],
+  lifeguard: ["Ján Gregocký", "Ľubomír Maršálek", "Vladimír Mališ"],
+  sanitation: ["Iveta Kubíková"],
+};
+
+const ROLE_INFO: Record<AuthRole, { label: string; short: string; icon: string; colorClass: string }> = {
+  maintenance: { label: "Údržba a technológia", short: "Údržba a technológia", icon: "🔧", colorClass: "role-maintenance" },
+  maintenance_manager: { label: "Vedúci Údržby a technológie", short: "Vedúci Údržby a technológie", icon: "🛠️", colorClass: "role-manager" },
+  operations_manager: { label: "Prevádzkový manažér", short: "Prevádzkový manažér", icon: "📊", colorClass: "role-operations" },
+  lifeguard: { label: "Plavčíci", short: "Plavčíci", icon: "🏊", colorClass: "role-lifeguard" },
+  sanitation: { label: "Sanita", short: "Čistota a hygiena areálu", icon: "✨", colorClass: "role-sanitation" },
+};
+
+const DESTINATION_OPTIONS: AuthRole[] = ["maintenance", "lifeguard", "sanitation", "maintenance_manager", "operations_manager"];
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -392,6 +462,56 @@ function PhotoChoice({
   );
 }
 
+function MultiPhotoChoice({
+  files,
+  onChange,
+  title = "Fotografie",
+  max = 3,
+}: {
+  files: File[];
+  onChange: (files: File[]) => void;
+  title?: string;
+  max?: number;
+}) {
+  const addFiles = (incoming: FileList | null) => {
+    if (!incoming) return;
+    const next = [...files];
+    for (const file of Array.from(incoming)) {
+      if (next.length >= max) break;
+      next.push(file);
+    }
+    onChange(next.slice(0, max));
+  };
+
+  return (
+    <div className="photo-choice-wrap multi-photo-choice">
+      <div className="photo-choice-title">{title} <small>({files.length}/{max})</small></div>
+      {files.length < max && (
+        <div className="photo-choice-grid">
+          <label className="photo-choice-button camera-choice">
+            <span>📷</span><strong>Odfotiť</strong><small>Pridať fotografiu</small>
+            <input type="file" accept="image/*" capture="environment" onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          </label>
+          <label className="photo-choice-button gallery-choice">
+            <span>🖼️</span><strong>Galéria</strong><small>Vybrať až {max - files.length}</small>
+            <input type="file" accept="image/*" multiple onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
+          </label>
+        </div>
+      )}
+      {files.length > 0 && (
+        <div className="multi-photo-list">
+          {files.map((file, index) => (
+            <div className="multi-photo-item" key={`${file.name}-${file.lastModified}-${index}`}>
+              <span>📷 {file.name}</span>
+              <button type="button" onClick={() => onChange(files.filter((_, i) => i !== index))}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [screen, setScreen] =
     useState<Screen>("home");
@@ -450,6 +570,10 @@ function App() {
   const [photoName, setPhotoName] =
     useState("");
 
+  const [reportPhotos, setReportPhotos] = useState<File[]>([]);
+  const [reportDestinationRole, setReportDestinationRole] = useState<AuthRole>("maintenance");
+  const [reportReturnScreen, setReportReturnScreen] = useState<Screen>("home");
+
   const [
     reportLoading,
     setReportLoading,
@@ -492,6 +616,12 @@ function App() {
   );
   const [loginLoadingRole, setLoginLoadingRole] = useState<string | null>(null);
   const [authReady, setAuthReady] = useState(false);
+  const [activeRole, setActiveRole] = useState<AuthRole | null>(null);
+  const [activeStaffName, setActiveStaffName] = useState("");
+  const [loginRole, setLoginRole] = useState<AuthRole>("maintenance");
+  const [loginNameChoice, setLoginNameChoice] = useState("");
+  const [loginOtherName, setLoginOtherName] = useState("");
+  const [loginPin, setLoginPin] = useState("");
   const [pushState, setPushState] = useState<PushState>("inactive");
   const [offlineDrafts, setOfflineDrafts] = useState<OfflineDraft[]>([]);
   const [draftsPanelOpen, setDraftsPanelOpen] = useState(false);
@@ -612,6 +742,8 @@ function App() {
     useState("");
   const [loggedOperationsName, setLoggedOperationsName] =
     useState("");
+  const [loggedLifeguardName, setLoggedLifeguardName] = useState("");
+  const [loggedSanitationName, setLoggedSanitationName] = useState("");
   const [operationsStatusFilter, setOperationsStatusFilter] =
     useState<OperationsStatusFilter>("all");
   const [operationsSearch, setOperationsSearch] =
@@ -643,6 +775,26 @@ function App() {
   const [ratingChoice, setRatingChoice] =
     useState<"up" | "down" | null>(null);
   const [ratingComment, setRatingComment] = useState("");
+
+  const [staffIssueAction, setStaffIssueAction] = useState<"take" | "material" | "transfer" | "close" | "comment" | "reopen" | null>(null);
+  const [staffActionComment, setStaffActionComment] = useState("");
+  const [staffActionPhotos, setStaffActionPhotos] = useState<File[]>([]);
+  const [staffTransferRole, setStaffTransferRole] = useState<AuthRole>("maintenance");
+  const [staffInboxRole, setStaffInboxRole] = useState<AuthRole>("maintenance");
+  const [staffStatusFilter, setStaffStatusFilter] = useState("open");
+  const [staffIssueReturnScreen, setStaffIssueReturnScreen] = useState<"staff-inbox" | "staff-my-reports">("staff-inbox");
+
+  const [pumps, setPumps] = useState<PumpRecord[]>([]);
+  const [selectedPump, setSelectedPump] = useState<PumpRecord | null>(null);
+  const [pumpEvents, setPumpEvents] = useState<PumpEvent[]>([]);
+  const [pumpFilter, setPumpFilter] = useState("all");
+  const [pumpLocation, setPumpLocation] = useState("");
+  const [pumpName, setPumpName] = useState("");
+  const [pumpPower, setPumpPower] = useState("");
+  const [pumpDescription, setPumpDescription] = useState("");
+  const [pumpPhoto, setPumpPhoto] = useState<File | null>(null);
+  const [pumpActionComment, setPumpActionComment] = useState("");
+  const [pumpActionPhoto, setPumpActionPhoto] = useState<File | null>(null);
 
   /* =========================================================
      AKCIE ÚDRŽBÁRA
@@ -935,6 +1087,11 @@ function App() {
     setLoggedMaintenanceName("");
     setLoggedManagerName("");
     setLoggedOperationsName("");
+    setLoggedLifeguardName("");
+    setLoggedSanitationName("");
+    setActiveRole(null);
+    setActiveStaffName("");
+    setLoginPin("");
     setMaintenancePassword("");
     setManagerPassword("");
     setOperationsPassword("");
@@ -1094,16 +1251,21 @@ function App() {
 
   const saveCurrentReportOffline = async () => {
     try {
-      const compressed = photoFile ? await compressImageForUpload(photoFile) : null;
+      const sourcePhotos = reportPhotos.length ? reportPhotos : photoFile ? [photoFile] : [];
+      const compressedPhotos: File[] = [];
+      for (const file of sourcePhotos.slice(0, 3)) compressedPhotos.push(await compressImageForUpload(file));
+      const first = compressedPhotos[0] || null;
       const id = activeDraftId || crypto.randomUUID();
       await putOfflineDraft({
         id,
         reporter: reporter.trim(),
         location: location.trim(),
         description: description.trim(),
-        photoBlob: compressed,
-        photoName: compressed?.name || "",
-        photoType: compressed?.type || "",
+        destinationRole: reportDestinationRole,
+        photoBlob: first,
+        photoName: first?.name || "",
+        photoType: first?.type || "",
+        photoBlobs: compressedPhotos.map((file) => ({ blob: file, name: file.name, type: file.type })),
         createdAt: new Date().toISOString(),
         needsReview: false,
       });
@@ -1113,8 +1275,9 @@ function App() {
       setDescription("");
       setPhotoFile(null);
       setPhotoName("");
+      setReportPhotos([]);
       await refreshOfflineDrafts();
-      setScreen("home");
+      setScreen(reportReturnScreen);
       showModal("success", "Hlásenie uložené offline", "Koncept ostáva v tomto zariadení. Po obnovení internetu sa aplikácia pokúsi hlásenie odoslať.");
     } catch (error) {
       console.error(error);
@@ -1154,9 +1317,15 @@ function App() {
           formData.append("reporter_name", draft.reporter);
           formData.append("location", draft.location);
           formData.append("description", draft.description);
-          if (draft.photoBlob) {
-            formData.append("photo", new File([draft.photoBlob], draft.photoName || "foto.jpg", { type: draft.photoType || draft.photoBlob.type || "image/jpeg" }));
-          }
+          formData.append("destination_role", draft.destinationRole || "maintenance");
+          const storedPhotos = draft.photoBlobs?.length
+            ? draft.photoBlobs
+            : draft.photoBlob
+            ? [{ blob: draft.photoBlob, name: draft.photoName || "foto.jpg", type: draft.photoType || draft.photoBlob.type || "image/jpeg" }]
+            : [];
+          storedPhotos.slice(0, 3).forEach((item) => {
+            formData.append("photos", new File([item.blob], item.name || "foto.jpg", { type: item.type || item.blob.type || "image/jpeg" }));
+          });
           const response = await fetchWithRetry("/api/issues", { method: "POST", body: formData }, 15000, 0);
           const data = await response.json();
           if (!response.ok || !data.success) throw new Error(data.error || "Odoslanie zlyhalo.");
@@ -1183,16 +1352,19 @@ function App() {
     setReporter(draft.reporter);
     setLocation(draft.location);
     setDescription(draft.description);
-    if (draft.photoBlob) {
-      const file = new File([draft.photoBlob], draft.photoName || "foto.jpg", { type: draft.photoType || draft.photoBlob.type || "image/jpeg" });
-      setPhotoFile(file);
-      setPhotoName(file.name);
-    } else {
-      setPhotoFile(null);
-      setPhotoName("");
-    }
+    setReportDestinationRole(draft.destinationRole || "maintenance");
+    const storedPhotos = draft.photoBlobs?.length
+      ? draft.photoBlobs
+      : draft.photoBlob
+      ? [{ blob: draft.photoBlob, name: draft.photoName || "foto.jpg", type: draft.photoType || draft.photoBlob.type || "image/jpeg" }]
+      : [];
+    const files = storedPhotos.slice(0, 3).map((item) => new File([item.blob], item.name || "foto.jpg", { type: item.type || item.blob.type || "image/jpeg" }));
+    setReportPhotos(files);
+    setPhotoFile(files[0] || null);
+    setPhotoName(files[0]?.name || "");
     setActiveDraftId(draft.id);
     setDraftsPanelOpen(false);
+    setReportReturnScreen("home");
     setScreen("report");
   };
 
@@ -1211,27 +1383,32 @@ function App() {
       const role = data.session.role as AuthRole;
       const name = String(data.session.name || "");
       if (!name) return;
+      setActiveRole(role);
+      setActiveStaffName(name);
       if (role === "maintenance") setLoggedMaintenanceName(name);
       if (role === "maintenance_manager") setLoggedManagerName(name);
       if (role === "operations_manager") setLoggedOperationsName(name);
+      if (role === "lifeguard") setLoggedLifeguardName(name);
+      if (role === "sanitation") setLoggedSanitationName(name);
       const ok = await loadIssues();
       if (!ok) return;
+      if (role === "maintenance" || role === "maintenance_manager") void loadPumps();
       if (role === "maintenance") {
         setMaintenanceFilter("new");
-        setScreen("maintenance-dashboard");
         void loadAlerts("maintenance", false);
         window.setTimeout(() => void loadMessages("maintenance"), 0);
       } else if (role === "maintenance_manager") {
         setManagerStatusFilter("all");
-        setScreen("manager-dashboard");
         void loadAlerts("management", true);
         window.setTimeout(() => void loadMessages("manager"), 0);
-      } else {
+      } else if (role === "operations_manager") {
         await loadRatings();
         setOperationsStatusFilter("all");
-        setScreen("operations-dashboard");
         void loadAlerts("management", true);
+      } else {
+        void loadAlerts("public", false);
       }
+      setScreen("staff-portal");
       window.setTimeout(() => void refreshPushStatus(), 0);
     } catch (error) {
       console.error("Obnovenie prihlásenia zlyhalo", error);
@@ -1267,7 +1444,7 @@ function App() {
           theme.name = "theme-color";
           document.head.appendChild(theme);
         }
-        theme.content = "#111111";
+        theme.content = "#0876d1";
 
         if (!document.querySelector('link[rel="apple-touch-icon"]')) {
           const appleIcon = document.createElement("link");
@@ -1284,7 +1461,7 @@ function App() {
         if (!document.querySelector('meta[name="apple-mobile-web-app-title"]')) {
           const appTitle = document.createElement("meta");
           appTitle.name = "apple-mobile-web-app-title";
-          appTitle.content = "Údržba TTL";
+          appTitle.content = "Tatralandia Prevádzka";
           document.head.appendChild(appTitle);
         }
 
@@ -1371,9 +1548,11 @@ function App() {
     formData.append("reporter_name", reporter.trim());
     formData.append("location", location.trim());
     formData.append("description", description.trim());
-    if (photoFile) {
-      const compressedPhoto = await compressImageForUpload(photoFile);
-      formData.append("photo", compressedPhoto, compressedPhoto.name);
+    formData.append("destination_role", reportDestinationRole);
+    const sourcePhotos = reportPhotos.length ? reportPhotos : photoFile ? [photoFile] : [];
+    for (const file of sourcePhotos.slice(0, 3)) {
+      const compressedPhoto = await compressImageForUpload(file);
+      formData.append("photos", compressedPhoto, compressedPhoto.name);
     }
 
     const response = await fetchWithRetry(
@@ -1449,9 +1628,11 @@ function App() {
       formData.append("reporter_name", reporter.trim());
       formData.append("location", location.trim());
       formData.append("description", description.trim());
-      if (photoFile) {
-        const compressedPhoto = await compressImageForUpload(photoFile);
-        formData.append("photo", compressedPhoto, compressedPhoto.name);
+      formData.append("destination_role", reportDestinationRole);
+      const mergePhotos = reportPhotos.length ? reportPhotos : photoFile ? [photoFile] : [];
+      for (const file of mergePhotos.slice(0, 3)) {
+        const compressedPhoto = await compressImageForUpload(file);
+        formData.append("photos", compressedPhoto, compressedPhoto.name);
       }
       const response = await fetchWithRetry(
         `/api/issues/${issueId}/duplicate-report`,
@@ -1485,15 +1666,19 @@ function App() {
   };
 
   const resetReport = () => {
+    const target = reportReturnScreen;
     setReporter("");
     setLocation("");
     setDescription("");
     setPhotoFile(null);
     setPhotoName("");
+    setReportPhotos([]);
+    setReportDestinationRole("maintenance");
     setDuplicateCandidates([]);
     setDuplicateWindowOpen(false);
     setActiveDraftId(null);
-    setScreen("home");
+    setReportReturnScreen("home");
+    setScreen(target);
   };
 
   /* =========================================================
@@ -1503,14 +1688,14 @@ function App() {
   const loginStaff = async (
     role: AuthRole,
     name: string,
-    password: string
+    pin: string
   ) => {
     const response = await fetchWithRetry(
       "/api/auth/login",
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, name: name.trim(), password }),
+        body: JSON.stringify({ role, name: name.trim(), pin }),
       },
       12000,
       0
@@ -1521,6 +1706,72 @@ function App() {
     }
     return data.session as { role: AuthRole; name: string };
   };
+
+  const openRoleLogin = (role: AuthRole) => {
+    setLoginRole(role);
+    setLoginPin("");
+    setLoginOtherName("");
+    setLoginNameChoice(role === "operations_manager" ? "Vladimír Moravčík" : "");
+    const screenByRole: Record<AuthRole, Screen> = {
+      maintenance: "maintenance-login",
+      maintenance_manager: "manager-login",
+      operations_manager: "operations-login",
+      lifeguard: "lifeguard-login",
+      sanitation: "sanitation-login",
+    };
+    setScreen(screenByRole[role]);
+  };
+
+  const performPinLogin = async () => {
+    const name = loginNameChoice === "__other__" ? loginOtherName.trim() : loginNameChoice.trim();
+    if (!name) {
+      showModal("error", "Vyberte meno", "Vyberte svoje meno alebo zvoľte Iné a meno dopíšte.");
+      setLoginPin("");
+      return;
+    }
+    if (!/^\d{4}$/.test(loginPin)) return;
+    try {
+      setLoginLoadingRole(loginRole);
+      const session = await loginStaff(loginRole, name, loginPin);
+      setActiveRole(session.role);
+      setActiveStaffName(session.name);
+      if (session.role === "maintenance") setLoggedMaintenanceName(session.name);
+      if (session.role === "maintenance_manager") setLoggedManagerName(session.name);
+      if (session.role === "operations_manager") setLoggedOperationsName(session.name);
+      if (session.role === "lifeguard") setLoggedLifeguardName(session.name);
+      if (session.role === "sanitation") setLoggedSanitationName(session.name);
+      const ok = await loadIssues();
+      if (!ok) return;
+      if (session.role === "maintenance" || session.role === "maintenance_manager") void loadPumps();
+      if (session.role === "maintenance") {
+        setMaintenanceFilter("new");
+        void loadAlerts("maintenance", false);
+        window.setTimeout(() => void loadMessages("maintenance"), 0);
+      } else if (session.role === "maintenance_manager") {
+        setManagerStatusFilter("all");
+        void loadAlerts("management", true);
+        window.setTimeout(() => void loadMessages("manager"), 0);
+      } else if (session.role === "operations_manager") {
+        await loadRatings();
+        setOperationsStatusFilter("all");
+        void loadAlerts("management", true);
+      } else {
+        void loadAlerts("public", false);
+      }
+      setLoginPin("");
+      setScreen("staff-portal");
+      window.setTimeout(() => void refreshPushStatus(), 0);
+    } catch (error) {
+      setLoginPin("");
+      showModal("error", "Prihlásenie sa nepodarilo", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setLoginLoadingRole(null);
+    }
+  };
+
+  useEffect(() => {
+    if (loginPin.length === 4 && !loginLoadingRole) void performPinLogin();
+  }, [loginPin]);
 
   const loginMaintenance = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1624,12 +1875,151 @@ function App() {
     setMaintenanceName("");
     setManagerName("");
     setOperationsName("");
+    setLoginNameChoice("");
+    setLoginOtherName("");
+    setLoginPin("");
     setScreen("home");
   };
 
   const logoutMaintenance = () => void logoutStaff();
   const logoutManager = () => void logoutStaff();
   const logoutOperations = () => void logoutStaff();
+
+  const openNewReportForStaff = () => {
+    setReporter(activeStaffName);
+    setLocation("");
+    setDescription("");
+    setReportPhotos([]);
+    setPhotoFile(null);
+    setPhotoName("");
+    setReportDestinationRole("maintenance");
+    setReportReturnScreen("staff-portal");
+    setScreen("report");
+  };
+
+  const openStaffIssue = async (issue: Issue) => {
+    setStaffIssueReturnScreen(screen === "staff-my-reports" ? "staff-my-reports" : "staff-inbox");
+    setSelectedIssue(issue);
+    setStaffIssueAction(null);
+    setStaffActionComment("");
+    setStaffActionPhotos([]);
+    setStaffTransferRole("maintenance");
+    await loadIssueEvents(issue.id);
+    setScreen("staff-issue");
+  };
+
+  const performStaffIssueAction = async (action: "take" | "material" | "transfer" | "close" | "comment" | "reopen") => {
+    if (!selectedIssue || !activeRole || !activeStaffName) return;
+    try {
+      setActionLoading(true);
+      const formData = new FormData();
+      formData.append("action", action);
+      formData.append("message", staffActionComment.trim());
+      if (action === "transfer" || action === "reopen") formData.append("target_role", staffTransferRole);
+      for (const file of staffActionPhotos.slice(0, 3)) {
+        const compressed = await compressImageForUpload(file);
+        formData.append("photos", compressed, compressed.name);
+      }
+      const response = await fetchWithRetry(`/api/issues/${selectedIssue.id}/action`, { method: "POST", body: formData }, 15000, 1);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Akciu sa nepodarilo uložiť.");
+      await loadIssues();
+      const updated = data.issue as Issue;
+      setSelectedIssue((prev) => prev ? { ...prev, ...updated } : updated);
+      await loadIssueEvents(selectedIssue.id);
+      setStaffIssueAction(null);
+      setStaffActionComment("");
+      setStaffActionPhotos([]);
+      showModal("success", "Akcia uložená", action === "close" ? "Závada bola uzavretá." : action === "transfer" ? "Závada bola posunutá ďalej." : "Zmena bola zapísaná do histórie.");
+    } catch (error) {
+      showModal("error", "Akciu sa nepodarilo uložiť", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const loadPumps = async () => {
+    try {
+      const response = await fetchWithRetry("/api/pumps", { cache: "no-store" }, 12000, 1);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Evidenciu sa nepodarilo načítať.");
+      setPumps(data.pumps || []);
+      return true;
+    } catch (error) {
+      showModal("error", "Čerpadlá sa nepodarilo načítať", error instanceof Error ? error.message : "Skúste to znova.");
+      return false;
+    }
+  };
+
+  const openPumps = async () => {
+    if (await loadPumps()) setScreen("pumps");
+  };
+
+  const openPump = async (pump: PumpRecord) => {
+    setSelectedPump(pump);
+    const response = await fetchWithRetry(`/api/pumps/${pump.id}/events`, { cache: "no-store" }, 12000, 1);
+    const data = await response.json();
+    setPumpEvents(response.ok && data.success ? data.events || [] : []);
+    setPumpActionComment("");
+    setPumpActionPhoto(null);
+    setScreen("pump-detail");
+  };
+
+  const createPumpRecord = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setFeatureLoading(true);
+      const formData = new FormData();
+      formData.append("location", pumpLocation.trim());
+      formData.append("pump_name", pumpName.trim());
+      formData.append("power_kw", pumpPower.trim());
+      formData.append("description", pumpDescription.trim());
+      if (pumpPhoto) {
+        const compressed = await compressImageForUpload(pumpPhoto);
+        formData.append("photo", compressed, compressed.name);
+      }
+      const response = await fetchWithRetry("/api/pumps", { method: "POST", body: formData }, 15000, 1);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Záznam sa nepodarilo vytvoriť.");
+      setPumpLocation(""); setPumpName(""); setPumpPower(""); setPumpDescription(""); setPumpPhoto(null);
+      await loadPumps();
+      setScreen("pumps");
+      showModal("success", "Čerpadlo zaevidované", "Záznam bol uložený.");
+    } catch (error) {
+      showModal("error", "Záznam sa nepodarilo vytvoriť", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
+
+  const performPumpAction = async (action: "broken" | "send_repair" | "returned_stock" | "returned_install" | "installed" | "comment") => {
+    if (!selectedPump) return;
+    try {
+      setFeatureLoading(true);
+      const formData = new FormData();
+      formData.append("action", action);
+      formData.append("message", pumpActionComment.trim());
+      if (pumpActionPhoto) {
+        const compressed = await compressImageForUpload(pumpActionPhoto);
+        formData.append("photo", compressed, compressed.name);
+      }
+      const response = await fetchWithRetry(`/api/pumps/${selectedPump.id}/action`, { method: "POST", body: formData }, 15000, 1);
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || "Zmenu sa nepodarilo uložiť.");
+      setSelectedPump(data.pump);
+      await loadPumps();
+      const evResponse = await fetchWithRetry(`/api/pumps/${selectedPump.id}/events`, { cache: "no-store" }, 12000, 1);
+      const evData = await evResponse.json();
+      if (evResponse.ok && evData.success) setPumpEvents(evData.events || []);
+      setPumpActionComment(""); setPumpActionPhoto(null);
+      if (data.issue_id) await loadIssues();
+      showModal("success", "Stav čerpadla uložený", data.issue_id ? "Zároveň vznikla úloha na montáž pre Údržbu a technológiu." : "Zmena bola zapísaná do histórie.");
+    } catch (error) {
+      showModal("error", "Zmenu sa nepodarilo uložiť", error instanceof Error ? error.message : "Skúste to znova.");
+    } finally {
+      setFeatureLoading(false);
+    }
+  };
 
   /* =========================================================
      PREVZATIE ÚDRŽBÁROM
@@ -4202,6 +4592,274 @@ function App() {
         </section>
       </main>
     );
+  }
+
+  const loginRoleFromScreen: AuthRole | null =
+    screen === "maintenance-login" ? "maintenance" :
+    screen === "manager-login" ? "maintenance_manager" :
+    screen === "operations-login" ? "operations_manager" :
+    screen === "lifeguard-login" ? "lifeguard" :
+    screen === "sanitation-login" ? "sanitation" : null;
+
+  if (loginRoleFromScreen) {
+    const info = ROLE_INFO[loginRoleFromScreen];
+    const names = STAFF_DIRECTORY[loginRoleFromScreen];
+    return (
+      <>
+        <main className="app-shell new-ui-shell">
+          <section className="app-card pin-login-card">
+            <div className="new-hero compact-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,76,140,.92), rgba(0,126,190,.60)), url(${tatralandiaHero})` }}>
+              <button className="new-back-button" onClick={() => setScreen("home")}>←</button>
+              <img src={tatralandiaLogo} alt="Tatralandia" className="new-logo" />
+              <div className="new-hero-copy">
+                <small>PREVÁDZKOVÝ SYSTÉM</small>
+                <h1>{info.label}</h1>
+              </div>
+            </div>
+            <div className="pin-login-body">
+              <div className={`pin-role-icon ${info.colorClass}`}>{info.icon}</div>
+              <h2>Prihlásenie</h2>
+              <p>Vyberte svoje meno a zadajte 4-miestny PIN.</p>
+
+              <label className="new-field-label">
+                Vaše meno
+                <select
+                  value={loginNameChoice}
+                  onChange={(e) => { setLoginNameChoice(e.target.value); setLoginPin(""); }}
+                >
+                  <option value="">Vyberte meno…</option>
+                  {names.map((name) => <option key={name} value={name}>{name}</option>)}
+                  <option value="__other__">Iné</option>
+                </select>
+              </label>
+              {loginNameChoice === "__other__" && (
+                <label className="new-field-label">
+                  Meno
+                  <input value={loginOtherName} onChange={(e) => setLoginOtherName(e.target.value)} placeholder="Napíšte meno" />
+                </label>
+              )}
+
+              <div className="pin-label">Zadajte svoj PIN</div>
+              <div className="pin-dots" aria-label={`${loginPin.length} zo 4 číslic`}>
+                {[0,1,2,3].map((i) => <span key={i} className={i < loginPin.length ? "filled" : ""} />)}
+              </div>
+              <div className="pin-keypad">
+                {[1,2,3,4,5,6,7,8,9].map((n) => (
+                  <button key={n} type="button" disabled={Boolean(loginLoadingRole)} onClick={() => setLoginPin((prev) => prev.length < 4 ? `${prev}${n}` : prev)}>{n}</button>
+                ))}
+                <button type="button" className="pin-clear" onClick={() => setLoginPin("")} disabled={Boolean(loginLoadingRole)}>C</button>
+                <button type="button" disabled={Boolean(loginLoadingRole)} onClick={() => setLoginPin((prev) => prev.length < 4 ? `${prev}0` : prev)}>0</button>
+                <button type="button" className="pin-backspace" onClick={() => setLoginPin((prev) => prev.slice(0, -1))} disabled={Boolean(loginLoadingRole)}>⌫</button>
+              </div>
+              <div className="pin-security-note">🔒 PIN sa overuje bezpečne na serveri.</div>
+            </div>
+          </section>
+        </main>
+        {globalWindows}
+      </>
+    );
+  }
+
+  if (screen === "staff-portal" && activeRole) {
+    const info = ROLE_INFO[activeRole];
+    const countFor = (role: AuthRole) => issues.filter((issue) => (issue.destination_role || "maintenance") === role && issue.status !== "closed").length;
+    const myReports = issues.filter((issue) => issue.reporter_role === activeRole && issue.reporter_name?.toLowerCase() === activeStaffName.toLowerCase());
+    const myOpen = myReports.filter((issue) => issue.status !== "closed").length;
+    const pumpRepairCount = pumps.filter((pump) => pump.status === "repair").length;
+    const pumpStockCount = pumps.filter((pump) => pump.status === "stock").length;
+    const openInbox = (role: AuthRole) => { setStaffInboxRole(role); setStaffStatusFilter("open"); setScreen("staff-inbox"); };
+
+    return (
+      <>
+        <main className="app-shell new-ui-shell">
+          <section className="app-card portal-card">
+            <div className="new-hero portal-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,76,140,.94), rgba(0,126,190,.62)), url(${tatralandiaHero})` }}>
+              <img src={tatralandiaLogo} alt="Tatralandia" className="new-logo" />
+              <div className="new-hero-copy">
+                <small>PREVÁDZKOVÝ SYSTÉM</small>
+                <h1>{info.label}</h1>
+                <p>{activeStaffName}</p>
+              </div>
+              <button className="portal-logout" onClick={() => void logoutStaff()}>Odhlásiť</button>
+            </div>
+
+            <div className="portal-content">
+              <div className="portal-welcome-row">
+                <div><strong>Dobrý deň, {activeStaffName.split(" ")[0]}</strong><span>Čo potrebujete spraviť?</span></div>
+                {pushFeatureButton}
+              </div>
+
+              <div className="portal-grid">
+                <button className="portal-tile tile-report" onClick={openNewReportForStaff}>
+                  <span className="tile-icon">＋</span><div><strong>Nahlásiť závadu</strong><small>Adresovať ktorémukoľvek stredisku</small></div><b>›</b>
+                </button>
+                {(activeRole === "maintenance" || activeRole === "lifeguard" || activeRole === "sanitation") && (
+                  <button className="portal-tile tile-my" onClick={() => setScreen("staff-my-reports")}>
+                    <span className="tile-icon">📋</span><div><strong>Mnou hlásené závady</strong><small>Sledovanie priebehu mojich hlásení</small></div>{myOpen > 0 && <em>{myOpen}</em>}<b>›</b>
+                  </button>
+                )}
+
+                {(activeRole === "maintenance" || activeRole === "lifeguard" || activeRole === "sanitation") && (
+                  <button className={`portal-tile ${info.colorClass}`} onClick={() => openInbox(activeRole)}>
+                    <span className="tile-icon">{info.icon}</span><div><strong>Závady adresované nám</strong><small>{info.label}</small></div>{countFor(activeRole) > 0 && <em>{countFor(activeRole)}</em>}<b>›</b>
+                  </button>
+                )}
+
+                {(activeRole === "maintenance_manager" || activeRole === "operations_manager") && (<>
+                  <button className="portal-tile role-maintenance" onClick={() => openInbox("maintenance")}><span className="tile-icon">🔧</span><div><strong>Údržba a technológia</strong><small>Otvorené úlohy</small></div>{countFor("maintenance") > 0 && <em>{countFor("maintenance")}</em>}<b>›</b></button>
+                  <button className="portal-tile role-lifeguard" onClick={() => openInbox("lifeguard")}><span className="tile-icon">🏊</span><div><strong>Plavčíci</strong><small>Otvorené úlohy</small></div>{countFor("lifeguard") > 0 && <em>{countFor("lifeguard")}</em>}<b>›</b></button>
+                  <button className="portal-tile role-sanitation" onClick={() => openInbox("sanitation")}><span className="tile-icon">✨</span><div><strong>Sanita</strong><small>Čistota a hygiena areálu</small></div>{countFor("sanitation") > 0 && <em>{countFor("sanitation")}</em>}<b>›</b></button>
+                  <button className={`portal-tile ${info.colorClass}`} onClick={() => openInbox(activeRole)}><span className="tile-icon">👤</span><div><strong>Adresované {activeRole === "maintenance_manager" ? "vedúcim" : "manažérovi"}</strong><small>Úlohy čakajúce na rozhodnutie</small></div>{countFor(activeRole) > 0 && <em>{countFor(activeRole)}</em>}<b>›</b></button>
+                </>)}
+
+                {(activeRole === "maintenance" || activeRole === "maintenance_manager") && (
+                  <button className="portal-tile tile-pumps" onClick={() => void openPumps()}>
+                    <span className="tile-icon">⚙️</span><div><strong>Čerpadlá</strong><small>{pumpRepairCount} v oprave • {pumpStockCount} na sklade</small></div>{pumpRepairCount > 0 && <em>{pumpRepairCount}</em>}<b>›</b>
+                  </button>
+                )}
+              </div>
+
+              <div className="portal-secondary-grid">
+                <button onClick={() => openAlerts(activeRole === "maintenance_manager" || activeRole === "operations_manager" ? "management" : "maintenance", activeRole === "maintenance_manager" || activeRole === "operations_manager")}><span>⚠️</span><strong>Upozornenia a odstávky</strong></button>
+                {activeRole === "maintenance" && <button onClick={() => { setMessagesPanelRole("maintenance"); void loadMessages("maintenance"); }}><span>💬</span><strong>Správy vedúcemu</strong></button>}
+                {activeRole === "maintenance_manager" && <button onClick={() => { setMessagesPanelRole("manager"); void loadMessages("manager"); }}><span>💬</span><strong>Správy z údržby</strong></button>}
+                {activeRole === "maintenance" && <button onClick={() => setScreen("maintenance-dashboard")}><span>🧰</span><strong>Detailný pracovný prehľad</strong></button>}
+                {activeRole === "maintenance_manager" && <button onClick={() => setScreen("manager-dashboard")}><span>📊</span><strong>Kompletný prehľad a štatistiky</strong></button>}
+                {activeRole === "operations_manager" && <button onClick={() => setScreen("operations-dashboard")}><span>📊</span><strong>Kompletný prehľad a štatistiky</strong></button>}
+              </div>
+            </div>
+          </section>
+        </main>
+        {globalWindows}
+      </>
+    );
+  }
+
+  if ((screen === "staff-inbox" || screen === "staff-my-reports") && activeRole) {
+    const isMyReports = screen === "staff-my-reports";
+    const baseIssues = isMyReports
+      ? issues.filter((issue) => issue.reporter_role === activeRole && issue.reporter_name?.toLowerCase() === activeStaffName.toLowerCase())
+      : issues.filter((issue) => (issue.destination_role || "maintenance") === staffInboxRole);
+    const visibleIssues = baseIssues.filter((issue) =>
+      staffStatusFilter === "all" ? true :
+      staffStatusFilter === "open" ? issue.status !== "closed" :
+      issue.status === staffStatusFilter
+    );
+    const title = isMyReports ? "Mnou hlásené závady" : `Závady – ${ROLE_INFO[staffInboxRole].label}`;
+    return (
+      <>
+        <main className="app-shell new-ui-shell">
+          <section className="app-card list-page-card">
+            <div className="new-page-header">
+              <button onClick={() => setScreen("staff-portal")}>←</button>
+              <div><small>{ROLE_INFO[activeRole].label}</small><h1>{title}</h1></div>
+              <span>{visibleIssues.length}</span>
+            </div>
+            <div className="status-chip-row">
+              {[
+                ["open","Otvorené"],["new","Nové"],["progress","V riešení"],["material","Čaká na materiál"],["closed","Vyriešené"],["all","Všetky"]
+              ].map(([value,label]) => <button key={value} className={staffStatusFilter === value ? "active" : ""} onClick={() => setStaffStatusFilter(value)}>{label}</button>)}
+            </div>
+            <div className="new-issue-list">
+              {visibleIssues.length === 0 ? <div className="new-empty-state">✓ V tejto kategórii nie sú žiadne závady.</div> : visibleIssues.map((issue) => (
+                <button key={issue.id} className="new-issue-row" onClick={() => void openStaffIssue(issue)}>
+                  <div className={`issue-status-dot status-${issue.status}`} />
+                  <div className="new-issue-main">
+                    <div className="new-issue-top"><strong>#{String(issue.id).padStart(4,"0")} • {issue.location}</strong><span>{statusLabel(issue.status)}</span></div>
+                    <p>{issue.description}</p>
+                    <small>👤 {issue.assignee_name || issue.current_worker_name ? `Rieši: ${issue.assignee_name || issue.current_worker_name}` : "Zatiaľ neprevzaté"} • {formatDate(issue.updated_at)}</small>
+                  </div>
+                  <b>›</b>
+                </button>
+              ))}
+            </div>
+          </section>
+        </main>
+        {globalWindows}
+      </>
+    );
+  }
+
+  if (screen === "staff-issue" && selectedIssue && activeRole) {
+    const destination = (selectedIssue.destination_role || "maintenance") as AuthRole;
+    const canEdit = destination === activeRole && selectedIssue.status !== "closed";
+    const assignee = selectedIssue.assignee_name || selectedIssue.current_worker_name;
+    const isMine = assignee?.toLowerCase() === activeStaffName.toLowerCase();
+    const rootPhotos = selectedIssue.photo_keys?.length ? selectedIssue.photo_keys : selectedIssue.photo_key ? [selectedIssue.photo_key] : [];
+    return (
+      <>
+        <main className="app-shell new-ui-shell">
+          <section className="app-card issue-detail-new">
+            <div className="new-page-header">
+              <button onClick={() => setScreen(staffIssueReturnScreen)}>←</button>
+              <div><small>ZÁVADA #{String(selectedIssue.id).padStart(4,"0")}</small><h1>{selectedIssue.location}</h1></div>
+              <span className={`detail-status status-${selectedIssue.status}`}>{statusLabel(selectedIssue.status)}</span>
+            </div>
+            <div className="issue-detail-body-new">
+              <div className="issue-meta-strip"><span>🎯 {ROLE_INFO[destination]?.label || destination}</span><span>👤 {assignee ? `Rieši ${assignee}` : "Neprevzaté"}</span><span>🕒 {formatDate(selectedIssue.updated_at)}</span></div>
+              <div className="issue-description-card"><h3>Popis</h3><p>{selectedIssue.description}</p><small>Nahlásil: {selectedIssue.reporter_name}</small></div>
+              {rootPhotos.length > 0 && <div className="issue-photo-gallery">{rootPhotos.map((key) => <img key={key} src={getPhotoUrl(key)} alt="Fotografia závady" />)}</div>}
+
+              {canEdit && (
+                <div className="issue-action-grid-new">
+                  <button className="action-take" disabled={isMine || actionLoading} onClick={() => void performStaffIssueAction("take")}><span>👷</span><strong>{isMine ? "Máte prevzaté" : assignee ? `Prevziať od ${assignee}` : "Prevziať závadu"}</strong></button>
+                  <button onClick={() => setStaffIssueAction("comment")}><span>💬</span><strong>Pridať komentár</strong></button>
+                  <button className="action-material" onClick={() => setStaffIssueAction("material")}><span>📦</span><strong>Čaká na materiál</strong></button>
+                  <button className="action-transfer" onClick={() => setStaffIssueAction("transfer")}><span>↪️</span><strong>Posunúť ďalej</strong></button>
+                  <button className="action-close" onClick={() => setStaffIssueAction("close")}><span>✅</span><strong>Vyriešiť / uzavrieť</strong></button>
+                </div>
+              )}
+              {selectedIssue.status === "closed" && ["maintenance_manager","operations_manager"].includes(activeRole) && (
+                <button className="reopen-new-button" onClick={() => setStaffIssueAction("reopen")}>↻ Znovu otvoriť závadu</button>
+              )}
+
+              {staffIssueAction && staffIssueAction !== "take" && (
+                <div className="new-action-panel">
+                  <div className="new-action-panel-head"><strong>{staffIssueAction === "transfer" ? "Posunúť závadu" : staffIssueAction === "close" ? "Vyriešiť závadu" : staffIssueAction === "material" ? "Čaká na materiál" : staffIssueAction === "reopen" ? "Znovu otvoriť" : "Doplniť komentár"}</strong><button onClick={() => { setStaffIssueAction(null); setStaffActionComment(""); setStaffActionPhotos([]); }}>×</button></div>
+                  {(staffIssueAction === "transfer" || staffIssueAction === "reopen") && <label className="new-field-label">Adresovať komu<select value={staffTransferRole} onChange={(e) => setStaffTransferRole(e.target.value as AuthRole)}>{DESTINATION_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_INFO[role].label}</option>)}</select></label>}
+                  <label className="new-field-label">Komentár <span>(voliteľný)</span><textarea rows={3} value={staffActionComment} onChange={(e) => setStaffActionComment(e.target.value)} placeholder="Doplňte informáciu k tejto akcii…" /></label>
+                  <MultiPhotoChoice files={staffActionPhotos} onChange={setStaffActionPhotos} title="Fotografie k akcii" max={3} />
+                  <button className="new-primary-button" disabled={actionLoading} onClick={() => void performStaffIssueAction(staffIssueAction)}>{actionLoading ? "Ukladám…" : "Potvrdiť"}</button>
+                </div>
+              )}
+
+              <div className="new-history-section">
+                <h3>História závady</h3>
+                {historyLoading ? <div className="loading-line">Načítavam históriu…</div> : issueEvents.map((event) => {
+                  const photos = event.photo_keys?.length ? event.photo_keys : event.photo_key ? [event.photo_key] : [];
+                  return <div className="new-history-item" key={event.id}><div className="history-dot"/><div><strong>{event.actor_name || "Systém"}</strong><span>{formatDate(event.created_at)}</span><small>{event.event_type.replaceAll("_"," ")}</small>{event.message && <p>{event.message}</p>}{photos.length > 0 && <div className="history-photo-row">{photos.map((key) => <img key={key} src={getPhotoUrl(key)} alt="Fotografia k udalosti" />)}</div>}</div></div>;
+                })}
+              </div>
+            </div>
+          </section>
+        </main>
+        {globalWindows}
+      </>
+    );
+  }
+
+  if (screen === "pumps" && activeRole) {
+    const visiblePumps = pumps.filter((pump) => pumpFilter === "all" ? true : pump.status === pumpFilter);
+    const counts = (status: string) => pumps.filter((pump) => pump.status === status).length;
+    return (
+      <>
+        <main className="app-shell new-ui-shell"><section className="app-card list-page-card">
+          <div className="new-page-header"><button onClick={() => setScreen("staff-portal")}>←</button><div><small>ÚDRŽBA A TECHNOLÓGIA</small><h1>Čerpadlá</h1></div><button className="header-add-button" onClick={() => setScreen("pump-new")}>＋</button></div>
+          <div className="pump-summary-grid"><div><strong>{counts("repair")}</strong><span>V oprave</span></div><div><strong>{counts("stock")}</strong><span>Na sklade</span></div><div><strong>{counts("install")}</strong><span>Na montáž</span></div></div>
+          <div className="status-chip-row pump-chips">{[["all","Všetky"],["broken","Pokazené"],["repair","V oprave"],["stock","Na sklade"],["install","Na montáž"],["installed","Namontované"]].map(([value,label]) => <button key={value} className={pumpFilter === value ? "active" : ""} onClick={() => setPumpFilter(value)}>{label}</button>)}</div>
+          <div className="new-issue-list">{visiblePumps.length === 0 ? <div className="new-empty-state">Žiadne čerpadlá v tejto kategórii.</div> : visiblePumps.map((pump) => <button className="pump-row" key={pump.id} onClick={() => void openPump(pump)}><span className="pump-icon">⚙️</span><div><strong>{pump.pump_name || `Čerpadlo #${pump.id}`}</strong><p>{pump.location || "Miesto neuvedené"}{pump.power_kw ? ` • ${pump.power_kw} kW` : ""}</p><small>{pump.description || "Bez popisu"}</small></div><em>{pump.status === "repair" ? "V oprave" : pump.status === "stock" ? "Na sklade" : pump.status === "install" ? "Na montáž" : pump.status === "installed" ? "Funkčné" : "Pokazené"}</em><b>›</b></button>)}</div>
+        </section></main>{globalWindows}
+      </>
+    );
+  }
+
+  if (screen === "pump-new" && activeRole) {
+    return <><main className="app-shell new-ui-shell"><section className="app-card form-page-card"><div className="new-page-header"><button onClick={() => setScreen("pumps")}>←</button><div><small>ČERPADLÁ</small><h1>Nahlásiť poruchu čerpadla</h1></div></div><form className="new-form" onSubmit={createPumpRecord}><label>Miesto<input value={pumpLocation} onChange={(e) => setPumpLocation(e.target.value)} placeholder="Kde sa čerpadlo nachádza / odkiaľ je" /></label><label>Názov / označenie čerpadla<input value={pumpName} onChange={(e) => setPumpName(e.target.value)} placeholder="Voliteľné" /></label><label>Výkon kW<input value={pumpPower} onChange={(e) => setPumpPower(e.target.value)} placeholder="Voliteľné" inputMode="decimal" /></label><label>Popis poruchy<textarea rows={4} value={pumpDescription} onChange={(e) => setPumpDescription(e.target.value)} placeholder="Voliteľné" /></label><PhotoChoice title="Fotografia čerpadla (voliteľná)" fileName={pumpPhoto?.name || ""} onFile={setPumpPhoto} /><div className="form-optional-note">Žiadny údaj nie je povinný. Záznam môžete uložiť aj s neúplnými informáciami.</div><button className="new-primary-button" type="submit" disabled={featureLoading}>{featureLoading ? "Ukladám…" : "Uložiť záznam"}</button></form></section></main>{globalWindows}</>;
+  }
+
+  if (screen === "pump-detail" && selectedPump && activeRole) {
+    const canPumpEdit = activeRole === "maintenance" || activeRole === "maintenance_manager";
+    return <><main className="app-shell new-ui-shell"><section className="app-card issue-detail-new"><div className="new-page-header"><button onClick={() => setScreen("pumps")}>←</button><div><small>ČERPADLO #{selectedPump.id}</small><h1>{selectedPump.pump_name || "Čerpadlo"}</h1></div><span>{selectedPump.status === "repair" ? "V oprave" : selectedPump.status === "stock" ? "Na sklade" : selectedPump.status === "install" ? "Na montáž" : selectedPump.status === "installed" ? "Funkčné" : "Pokazené"}</span></div><div className="issue-detail-body-new"><div className="issue-description-card"><h3>{selectedPump.location || "Miesto neuvedené"}</h3><p>{selectedPump.description || "Bez popisu poruchy"}</p>{selectedPump.power_kw && <small>Výkon: {selectedPump.power_kw} kW</small>}</div>{selectedPump.photo_key && <div className="issue-photo-gallery"><img src={getPhotoUrl(selectedPump.photo_key)} alt="Čerpadlo" /></div>}{canPumpEdit && <div className="pump-action-grid"><button onClick={() => void performPumpAction("send_repair")}>🚚<strong>Odoslané do opravy</strong></button><button onClick={() => void performPumpAction("returned_stock")}>📦<strong>Prišlo z opravy → sklad</strong></button><button onClick={() => void performPumpAction("returned_install")}>🔩<strong>Prišlo z opravy → namontovať</strong></button><button onClick={() => void performPumpAction("installed")}>✅<strong>Namontované / funkčné</strong></button></div>}<div className="pump-note-box"><label className="new-field-label">Poznámka k ďalšej akcii <span>(voliteľná)</span><textarea rows={2} value={pumpActionComment} onChange={(e) => setPumpActionComment(e.target.value)} /></label><PhotoChoice title="Fotografia (voliteľná)" fileName={pumpActionPhoto?.name || ""} onFile={setPumpActionPhoto} /><button className="secondary-action-button" disabled={!canPumpEdit || featureLoading} onClick={() => void performPumpAction("comment")}>💬 Pridať poznámku</button></div><div className="new-history-section"><h3>História čerpadla</h3>{pumpEvents.map((event) => <div className="new-history-item" key={event.id}><div className="history-dot"/><div><strong>{event.actor_name}</strong><span>{formatDate(event.created_at)}</span><small>{event.event_type.replaceAll("_"," ")}</small>{event.message && <p>{event.message}</p>}{event.photo_key && <img className="timeline-photo" src={getPhotoUrl(event.photo_key)} alt="Fotografia" />}</div></div>)}</div></div></section></main>{globalWindows}</>;
   }
 
   if (screen === "operations-login") {
@@ -6839,143 +7497,46 @@ function App() {
   if (screen === "report") {
     return (
       <>
-        <main className="app-shell">
-
-          <section className="app-card">
-
-            <div className="top-bar">
-
-              <button
-                className="back-button"
-                onClick={() =>
-                  setScreen("home")
-                }
-              >
-                ← Späť
-              </button>
-
-              <img
-                src={tatralandiaLogo}
-                alt="Tatralandia"
-                className="small-logo"
-              />
-
+        <main className="app-shell new-ui-shell">
+          <section className="app-card form-page-card report-new-card">
+            <div className="new-hero compact-hero report-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,88,157,.94), rgba(0,144,190,.58)), url(${tatralandiaHero})` }}>
+              <button className="new-back-button" onClick={() => setScreen(reportReturnScreen)}>←</button>
+              <img src={tatralandiaLogo} alt="Tatralandia" className="new-logo" />
+              <div className="new-hero-copy"><small>NOVÉ HLÁSENIE</small><h1>Nahlásiť závadu</h1><p>Vyberte adresáta a doplňte základné informácie.</p></div>
             </div>
 
-            <div className="section-badge">
-              HLÁSENIE ZÁVADY
-            </div>
-
-            <h1>
-              Nahlásiť závadu
-            </h1>
-
-            {publicAlerts.length > 0 && (
-              <div className="report-active-alerts">
-                <div className="report-alerts-title">⚠ Pred nahlásením skontrolujte aktuálne obmedzenia</div>
-                {publicAlerts.slice(0, 2).map((alert) => (
-                  <button key={alert.id} type="button" className={`report-alert-mini alert-${alert.alert_type}`} onClick={() => openAlerts("public", false)}>
-                    <span>{alertTypeInfo[alert.alert_type].icon}</span>
-                    <div>
-                      <strong>{alert.title || alert.description || alertTypeInfo[alert.alert_type].label}</strong>
-                      <small>{[alert.location, alert.description && alert.description !== alert.title ? alert.description : ""].filter(Boolean).join(" • ")}</small>
-                    </div>
-                    <b>›</b>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <form
-              className="report-form"
-              onSubmit={submitReport}
-            >
-
-              <label>
-                Kto nahlasuje?
-
-                <input
-                  value={reporter}
-                  onChange={(e) =>
-                    setReporter(
-                      e.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                Kde sa závada nachádza?
-
-                <input
-                  value={location}
-                  onChange={(e) =>
-                    setLocation(
-                      e.target.value
-                    )
-                  }
-                />
-              </label>
-
-              <label>
-                Popis závady
-
-                <textarea
-                  value={description}
-                  onChange={(e) =>
-                    setDescription(
-                      e.target.value
-                    )
-                  }
-                  rows={5}
-                />
-              </label>
-
-              <PhotoChoice
-                title="Fotografia závady"
-                fileName={photoName}
-                onFile={(file) => {
-                  setPhotoFile(file);
-                  setPhotoName(file?.name || "");
-                }}
-              />
-
-              {!isOnline && (
-                <div className="offline-report-note">
-                  <strong>📴 Bez internetu</strong>
-                  <span>Hlásenie vrátane fotografie sa uloží lokálne v tomto zariadení a odošle sa po obnovení pripojenia.</span>
-                </div>
+            <form className="new-form report-new-form" onSubmit={submitReport}>
+              {publicAlerts.length > 0 && (
+                <button type="button" className="report-alert-strip" onClick={() => openAlerts("public", false)}>
+                  <span>⚠️</span><div><strong>Aktuálne upozornenia a odstávky</strong><small>{publicAlerts.length} aktívne</small></div><b>›</b>
+                </button>
               )}
 
-              {activeDraftId && (
-                <div className="offline-report-note draft-edit-note">
-                  <strong>📝 Upravujete offline koncept</strong>
-                  <span>Po úspešnom odoslaní sa koncept z telefónu odstráni.</span>
-                </div>
+              {activeRole ? (
+                <div className="reporter-identity"><span>👤</span><div><small>Nahlasuje</small><strong>{activeStaffName}</strong><em>{ROLE_INFO[activeRole].label}</em></div></div>
+              ) : (
+                <label>Kto nahlasuje?<input value={reporter} onChange={(e) => setReporter(e.target.value)} placeholder="Vaše meno" /></label>
               )}
 
-              <button
-                className="submit-button"
-                type="submit"
-                disabled={
-                  reportLoading
-                }
-              >
-                {reportLoading
-                  ? "Odosielam..."
-                  : !isOnline
-                  ? "💾 Uložiť offline koncept"
-                  : activeDraftId
-                  ? "⚠️ Odoslať uložený koncept"
-                  : "⚠️ Odoslať závadu"}
+              <label className="destination-field">Adresovať komu?
+                <select value={reportDestinationRole} onChange={(e) => setReportDestinationRole(e.target.value as AuthRole)}>
+                  {DESTINATION_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_INFO[role].label}</option>)}
+                </select>
+              </label>
+              <label>Kde sa závada nachádza?<input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Miesto / prevádzka / atrakcia" /></label>
+              <label>Popis závady<textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} placeholder="Čo je pokazené alebo čo treba vyriešiť?" /></label>
+
+              <MultiPhotoChoice files={reportPhotos} onChange={(files) => { setReportPhotos(files); setPhotoFile(files[0] || null); setPhotoName(files[0]?.name || ""); }} title="Fotografie závady" max={3} />
+
+              {!isOnline && <div className="offline-report-note"><strong>📴 Bez internetu</strong><span>Hlásenie vrátane fotografií sa uloží v zariadení a odošle po obnovení pripojenia.</span></div>}
+              {activeDraftId && <div className="offline-report-note draft-edit-note"><strong>📝 Upravujete offline koncept</strong><span>Po úspešnom odoslaní sa koncept odstráni.</span></div>}
+
+              <button className="new-primary-button report-submit-new" type="submit" disabled={reportLoading}>
+                {reportLoading ? "Odosielam…" : !isOnline ? "💾 Uložiť offline koncept" : activeDraftId ? "Odoslať uložený koncept" : "Odoslať závadu"}
               </button>
-
             </form>
-
           </section>
-
         </main>
-
         {globalWindows}
       </>
     );
@@ -6985,41 +7546,16 @@ function App() {
      SUCCESS
      ========================================================= */
 
-  if (
-    screen === "success"
-  ) {
+  if (screen === "success") {
     return (
-      <main className="app-shell">
-
-        <section className="app-card success-card">
-
-          <img
-            src={tatralandiaLogo}
-            alt="Tatralandia"
-            className="success-logo"
-          />
-
-          <div className="success-icon">
-            ✓
-          </div>
-
-          <h1>Ďakujeme</h1>
-
-          <p>
-            Závada bola úspešne
-            nahlásená a odoslaná
-            údržbe.
-          </p>
-
-          <button
-            className="submit-button"
-            onClick={resetReport}
-          >
-            Späť na úvod
-          </button>
-
+      <main className="app-shell new-ui-shell">
+        <section className="app-card success-card new-success-card">
+          <img src={tatralandiaLogo} alt="Tatralandia" className="success-logo" />
+          <div className="success-icon">✓</div>
+          <h1>Hlásenie odoslané</h1>
+          <p>Závada bola úspešne zaznamenaná a odoslaná adresátovi.</p>
+          <button className="new-primary-button" onClick={resetReport}>{reportReturnScreen === "staff-portal" ? "Späť do môjho konta" : "Späť na úvod"}</button>
         </section>
-
       </main>
     );
   }
@@ -7030,191 +7566,42 @@ function App() {
 
   return (
     <>
-      <main className="app-shell home-shell">
-
-        <section className="app-card home-card">
-
-          <div className="home-hero">
-
-            <div className="brand-area">
-
-              <img
-                src={tatralandiaLogo}
-                alt="Tatralandia"
-                className="tatralandia-logo"
-              />
-
-              <div className="brand-description">
-                INTERNÝ SYSTÉM ÚDRŽBY
-              </div>
-
-            </div>
-
-            <h1 className="home-title">
-              Aplikácia údržby
-            </h1>
-
-            <p className="home-subtitle">
-              Rýchle nahlasovanie, efektívne riešenie a jasný prehľad o údržbe Tatralandie.
-            </p>
-
-            <button
-              className="report-button"
-              onClick={() =>
-                setScreen("report")
-              }
-            >
-
-              <div className="report-button-icon">
-                +
-              </div>
-
-              <div className="report-button-content">
-                <strong>
-                  Nahlásiť závadu
-                </strong>
-
-                <span>
-                  Nové hlásenie pre údržbu
-                </span>
-              </div>
-
-              <div className="arrow">
-                ›
-              </div>
-
-            </button>
-
-            {offlineDrafts.length > 0 && (
-              <button className="home-drafts-button" onClick={() => setDraftsPanelOpen(true)}>
-                <div className="home-drafts-icon">📴</div>
-                <div>
-                  <strong>Offline koncepty</strong>
-                  <span>{offlineDrafts.length} {offlineDrafts.length === 1 ? "neodoslaný koncept" : "neodoslané koncepty"}</span>
-                </div>
-                <b>{offlineDrafts.length}</b>
-                <div className="role-arrow">›</div>
+      <main className="app-shell home-shell new-ui-shell">
+        <section className="app-card new-home-card">
+          <div className="new-home-hero" style={{ backgroundImage: `linear-gradient(90deg, rgba(0,91,162,.88), rgba(0,144,190,.42)), url(${tatralandiaHero})` }}>
+            <img src={tatralandiaLogo} alt="Tatralandia" className="new-home-logo" />
+            <div className="new-home-title"><h1>Prevádzkový systém</h1><p>Nahlasovanie závad a prevádzkových požiadaviek</p></div>
+          </div>
+          <div className="new-home-body">
+            <div className="new-home-grid">
+              <button className="new-home-tile home-report-tile" onClick={() => { setReporter(""); setReportPhotos([]); setPhotoFile(null); setPhotoName(""); setReportDestinationRole("maintenance"); setReportReturnScreen("home"); setScreen("report"); }}>
+                <span>⚠️</span><div><strong>Nahlásiť závadu</strong><small>Bez prihlásenia</small></div><b>›</b>
               </button>
-            )}
-
-            <button
-              className={`home-alert-button ${publicAlerts.some((item) => item.alert_type === "critical") ? "home-alert-critical" : ""}`}
-              onClick={() => openAlerts("public", false)}
-            >
-              <div className="home-alert-icon">⚠</div>
-              <div>
-                <strong>Upozornenia a odstávky</strong>
-                <span>{publicAlerts.length > 0 ? `${publicAlerts.length} aktuálne` : "Bez aktuálnych obmedzení"}</span>
-              </div>
-              {publicAlerts.length > 0 && <b>{publicAlerts.length}</b>}
-              <div className="role-arrow">›</div>
-            </button>
-
-          </div>
-
-          <div className="home-content">
-
-            <div className="employee-login-title">
-              POKRAČOVAŤ AKO
+              <button className="new-home-tile home-maintenance-tile" onClick={() => openRoleLogin("maintenance")}>
+                <span>🔧</span><div><strong>Údržba a technológia</strong><small>Prihlásenie zamestnanca</small></div><b>›</b>
+              </button>
+              <button className="new-home-tile home-manager-tile" onClick={() => openRoleLogin("maintenance_manager")}>
+                <span>🛠️</span><div><strong>Vedúci Údržby a technológie</strong><small>Riadenie a rozhodovanie</small></div><b>›</b>
+              </button>
+              <button className="new-home-tile home-operations-tile" onClick={() => openRoleLogin("operations_manager")}>
+                <span>📊</span><div><strong>Prevádzkový manažér</strong><small>Kompletný prehľad</small></div><b>›</b>
+              </button>
+              <button className="new-home-tile home-lifeguard-tile" onClick={() => openRoleLogin("lifeguard")}>
+                <span>🏊</span><div><strong>Plavčíci</strong><small>Prihlásenie plavčíka</small></div><b>›</b>
+              </button>
+              <button className="new-home-tile home-sanitation-tile" onClick={() => openRoleLogin("sanitation")}>
+                <span>✨</span><div><strong>Sanita</strong><small>Čistota a hygiena areálu</small></div><b>›</b>
+              </button>
             </div>
 
-            <div className="role-buttons">
-
-            <button
-              className="role-button"
-              onClick={() =>
-                setScreen(
-                  "maintenance-login"
-                )
-              }
-            >
-              <div className="role-icon">
-                🔧
-              </div>
-
-              <div>
-                <strong>
-                  Údržbár
-                </strong>
-
-                <span>
-                  Nové a rozpracované závady
-                </span>
-              </div>
-
-              <div className="role-arrow">
-                ›
-              </div>
-            </button>
-
-            <button
-              className="role-button"
-              onClick={() =>
-                setScreen(
-                  "manager-login"
-                )
-              }
-            >
-              <div className="role-icon">
-                🛠️
-              </div>
-
-              <div>
-                <strong>
-                  Vedúci údržby
-                </strong>
-
-                <span>
-                  Riadenie úloh a štatistika
-                </span>
-              </div>
-
-              <div className="role-arrow">
-                ›
-              </div>
-            </button>
-
-            <button
-              className="role-button"
-              onClick={() =>
-                setScreen("operations-login")
-              }
-            >
-              <div className="role-icon">
-                📊
-              </div>
-
-              <div>
-                <strong>
-                  Prevádzkový manažér
-                </strong>
-
-                <span>
-                  Kompletný prehľad a riadenie
-                </span>
-              </div>
-
-              <div className="role-arrow">
-                ›
-              </div>
-            </button>
-
-          </div>
-
-            <div className="footer-line">
-              Tatralandia • interný systém hlásenia závad
+            <div className="new-home-secondary">
+              <button onClick={() => openAlerts("public", false)}><span>⚠</span><div><strong>Upozornenia a odstávky</strong><small>{publicAlerts.length > 0 ? `${publicAlerts.length} aktuálne` : "Bez aktuálnych obmedzení"}</small></div>{publicAlerts.length > 0 && <em>{publicAlerts.length}</em>}<b>›</b></button>
+              {offlineDrafts.length > 0 && <button onClick={() => setDraftsPanelOpen(true)}><span>📴</span><div><strong>Offline koncepty</strong><small>{offlineDrafts.length} čaká na odoslanie</small></div><em>{offlineDrafts.length}</em><b>›</b></button>}
             </div>
-
-            <div className="app-author">
-              Autor aplikácie: Jaroslav Pažítka • v{APP_VERSION}
-            </div>
-
+            <div className="new-home-footer">Tatralandia • interný prevádzkový systém <span>v{APP_VERSION}</span></div>
           </div>
-
         </section>
-
       </main>
-
       {globalWindows}
     </>
   );
