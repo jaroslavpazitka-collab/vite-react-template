@@ -5355,6 +5355,12 @@ function App() {
         <main className="app-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
+              <button
+                className="back-button"
+                onClick={() => setScreen(activeRole ? "staff-portal" : "home")}
+              >
+                ← Späť
+              </button>
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
             </div>
@@ -5440,6 +5446,12 @@ function App() {
         <main className="app-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
+              <button
+                className="back-button"
+                onClick={() => setScreen(activeRole ? "staff-portal" : "home")}
+              >
+                ← Späť
+              </button>
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
             </div>
@@ -5879,6 +5891,12 @@ function App() {
         <main className="app-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
+              <button
+                className="back-button"
+                onClick={() => setScreen(activeRole ? "staff-portal" : "home")}
+              >
+                ← Späť
+              </button>
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutManager}>Odhlásiť</button>
             </div>
@@ -6405,6 +6423,12 @@ function App() {
         <main className="app-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
+              <button
+                className="back-button"
+                onClick={() => setScreen(activeRole ? "staff-portal" : "home")}
+              >
+                ← Späť
+              </button>
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutManager}>Odhlásiť</button>
             </div>
@@ -7134,6 +7158,12 @@ function App() {
           <section className="app-card dashboard-card">
 
             <div className="dashboard-header">
+              <button
+                className="back-button"
+                onClick={() => setScreen(activeRole ? "staff-portal" : "home")}
+              >
+                ← Späť
+              </button>
 
               <img
                 src={tatralandiaLogo}
