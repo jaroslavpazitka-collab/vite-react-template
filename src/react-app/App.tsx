@@ -567,7 +567,7 @@ function App() {
   const [photoFile, setPhotoFile] =
     useState<File | null>(null);
 
-  const [photoName, setPhotoName] =
+  const [, setPhotoName] =
     useState("");
 
   const [reportPhotos, setReportPhotos] = useState<File[]>([]);
@@ -742,8 +742,8 @@ function App() {
     useState("");
   const [loggedOperationsName, setLoggedOperationsName] =
     useState("");
-  const [loggedLifeguardName, setLoggedLifeguardName] = useState("");
-  const [loggedSanitationName, setLoggedSanitationName] = useState("");
+  const [, setLoggedLifeguardName] = useState("");
+  const [, setLoggedSanitationName] = useState("");
   const [operationsStatusFilter, setOperationsStatusFilter] =
     useState<OperationsStatusFilter>("all");
   const [operationsSearch, setOperationsSearch] =
@@ -4827,7 +4827,7 @@ function App() {
                 <h3>História závady</h3>
                 {historyLoading ? <div className="loading-line">Načítavam históriu…</div> : issueEvents.map((event) => {
                   const photos = event.photo_keys?.length ? event.photo_keys : event.photo_key ? [event.photo_key] : [];
-                  return <div className="new-history-item" key={event.id}><div className="history-dot"/><div><strong>{event.actor_name || "Systém"}</strong><span>{formatDate(event.created_at)}</span><small>{event.event_type.replaceAll("_"," ")}</small>{event.message && <p>{event.message}</p>}{photos.length > 0 && <div className="history-photo-row">{photos.map((key) => <img key={key} src={getPhotoUrl(key)} alt="Fotografia k udalosti" />)}</div>}</div></div>;
+                  return <div className="new-history-item" key={event.id}><div className="history-dot"/><div><strong>{event.actor_name || "Systém"}</strong><span>{formatDate(event.created_at)}</span><small>{event.event_type.split("_").join(" ")}</small>{event.message && <p>{event.message}</p>}{photos.length > 0 && <div className="history-photo-row">{photos.map((key) => <img key={key} src={getPhotoUrl(key)} alt="Fotografia k udalosti" />)}</div>}</div></div>;
                 })}
               </div>
             </div>
@@ -4859,7 +4859,7 @@ function App() {
 
   if (screen === "pump-detail" && selectedPump && activeRole) {
     const canPumpEdit = activeRole === "maintenance" || activeRole === "maintenance_manager";
-    return <><main className="app-shell new-ui-shell"><section className="app-card issue-detail-new"><div className="new-page-header"><button onClick={() => setScreen("pumps")}>←</button><div><small>ČERPADLO #{selectedPump.id}</small><h1>{selectedPump.pump_name || "Čerpadlo"}</h1></div><span>{selectedPump.status === "repair" ? "V oprave" : selectedPump.status === "stock" ? "Na sklade" : selectedPump.status === "install" ? "Na montáž" : selectedPump.status === "installed" ? "Funkčné" : "Pokazené"}</span></div><div className="issue-detail-body-new"><div className="issue-description-card"><h3>{selectedPump.location || "Miesto neuvedené"}</h3><p>{selectedPump.description || "Bez popisu poruchy"}</p>{selectedPump.power_kw && <small>Výkon: {selectedPump.power_kw} kW</small>}</div>{selectedPump.photo_key && <div className="issue-photo-gallery"><img src={getPhotoUrl(selectedPump.photo_key)} alt="Čerpadlo" /></div>}{canPumpEdit && <div className="pump-action-grid"><button onClick={() => void performPumpAction("send_repair")}>🚚<strong>Odoslané do opravy</strong></button><button onClick={() => void performPumpAction("returned_stock")}>📦<strong>Prišlo z opravy → sklad</strong></button><button onClick={() => void performPumpAction("returned_install")}>🔩<strong>Prišlo z opravy → namontovať</strong></button><button onClick={() => void performPumpAction("installed")}>✅<strong>Namontované / funkčné</strong></button></div>}<div className="pump-note-box"><label className="new-field-label">Poznámka k ďalšej akcii <span>(voliteľná)</span><textarea rows={2} value={pumpActionComment} onChange={(e) => setPumpActionComment(e.target.value)} /></label><PhotoChoice title="Fotografia (voliteľná)" fileName={pumpActionPhoto?.name || ""} onFile={setPumpActionPhoto} /><button className="secondary-action-button" disabled={!canPumpEdit || featureLoading} onClick={() => void performPumpAction("comment")}>💬 Pridať poznámku</button></div><div className="new-history-section"><h3>História čerpadla</h3>{pumpEvents.map((event) => <div className="new-history-item" key={event.id}><div className="history-dot"/><div><strong>{event.actor_name}</strong><span>{formatDate(event.created_at)}</span><small>{event.event_type.replaceAll("_"," ")}</small>{event.message && <p>{event.message}</p>}{event.photo_key && <img className="timeline-photo" src={getPhotoUrl(event.photo_key)} alt="Fotografia" />}</div></div>)}</div></div></section></main>{globalWindows}</>;
+    return <><main className="app-shell new-ui-shell"><section className="app-card issue-detail-new"><div className="new-page-header"><button onClick={() => setScreen("pumps")}>←</button><div><small>ČERPADLO #{selectedPump.id}</small><h1>{selectedPump.pump_name || "Čerpadlo"}</h1></div><span>{selectedPump.status === "repair" ? "V oprave" : selectedPump.status === "stock" ? "Na sklade" : selectedPump.status === "install" ? "Na montáž" : selectedPump.status === "installed" ? "Funkčné" : "Pokazené"}</span></div><div className="issue-detail-body-new"><div className="issue-description-card"><h3>{selectedPump.location || "Miesto neuvedené"}</h3><p>{selectedPump.description || "Bez popisu poruchy"}</p>{selectedPump.power_kw && <small>Výkon: {selectedPump.power_kw} kW</small>}</div>{selectedPump.photo_key && <div className="issue-photo-gallery"><img src={getPhotoUrl(selectedPump.photo_key)} alt="Čerpadlo" /></div>}{canPumpEdit && <div className="pump-action-grid"><button onClick={() => void performPumpAction("send_repair")}>🚚<strong>Odoslané do opravy</strong></button><button onClick={() => void performPumpAction("returned_stock")}>📦<strong>Prišlo z opravy → sklad</strong></button><button onClick={() => void performPumpAction("returned_install")}>🔩<strong>Prišlo z opravy → namontovať</strong></button><button onClick={() => void performPumpAction("installed")}>✅<strong>Namontované / funkčné</strong></button></div>}<div className="pump-note-box"><label className="new-field-label">Poznámka k ďalšej akcii <span>(voliteľná)</span><textarea rows={2} value={pumpActionComment} onChange={(e) => setPumpActionComment(e.target.value)} /></label><PhotoChoice title="Fotografia (voliteľná)" fileName={pumpActionPhoto?.name || ""} onFile={setPumpActionPhoto} /><button className="secondary-action-button" disabled={!canPumpEdit || featureLoading} onClick={() => void performPumpAction("comment")}>💬 Pridať poznámku</button></div><div className="new-history-section"><h3>História čerpadla</h3>{pumpEvents.map((event) => <div className="new-history-item" key={event.id}><div className="history-dot"/><div><strong>{event.actor_name}</strong><span>{formatDate(event.created_at)}</span><small>{event.event_type.split("_").join(" ")}</small>{event.message && <p>{event.message}</p>}{event.photo_key && <img className="timeline-photo" src={getPhotoUrl(event.photo_key)} alt="Fotografia" />}</div></div>)}</div></div></section></main>{globalWindows}</>;
   }
 
   if (screen === "operations-login") {
