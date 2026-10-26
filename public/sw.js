@@ -1,4 +1,4 @@
-const CACHE_NAME = "tatralandia-v1.5.0";
+const CACHE_NAME = "tatralandia-v1.6.0";
 const META_CACHE = "tatralandia-meta-v1";
 const TOKEN_KEY = "/__tatralandia_push_device_token";
 const CORE_ASSETS = ["/", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
@@ -142,7 +142,7 @@ self.addEventListener("message", (event) => {
 
 self.addEventListener("push", (event) => {
   event.waitUntil((async () => {
-    let title = "Tatralandia Údržba";
+    let title = "Tatralandia Prevádzka";
     let body = "V aplikácii je nová udalosť.";
     let url = "/";
 
