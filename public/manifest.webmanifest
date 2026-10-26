@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "Tatralandia Údržba",
-  "short_name": "Údržba TTL",
-  "description": "Interný systém hlásenia a riadenia závad v Tatralandii.",
+  "name": "Tatralandia Prevádzkový systém",
+  "short_name": "Tatralandia",
+  "description": "Interný prevádzkový systém Tatralandie pre hlásenia, úlohy, upozornenia a evidenciu.",
   "lang": "sk",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#111111",
-  "theme_color": "#111111",
+  "background_color": "#f4f7fb",
+  "theme_color": "#0876d1",
   "icons": [
     {
       "src": "/icon-192.png",
