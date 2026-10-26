@@ -6,6 +6,11 @@ type Bindings = {
   MAINTENANCE_PASSWORD?: string;
   MANAGER_PASSWORD?: string;
   OPERATIONS_PASSWORD?: string;
+  MAINTENANCE_PIN?: string;
+  MANAGER_PIN?: string;
+  OPERATIONS_PIN?: string;
+  LIFEGUARD_PIN?: string;
+  SANITATION_PIN?: string;
   SESSION_SECRET?: string;
 };
 
@@ -42,13 +47,22 @@ let featureTablesReady = false;
 const SESSION_COOKIE = "tl_session";
 const SESSION_HOURS = 12;
 
-type StaffRole = "maintenance" | "maintenance_manager" | "operations_manager";
+type StaffRole = "maintenance" | "maintenance_manager" | "operations_manager" | "lifeguard" | "sanitation";
+const ALL_STAFF_ROLES: StaffRole[] = ["maintenance", "maintenance_manager", "operations_manager", "lifeguard", "sanitation"];
 type StaffSession = {
   id: number;
   role: StaffRole;
   name: string;
   expires_at: string;
 };
+
+async function ensureColumn(db: D1Database, table: string, column: string, definition: string) {
+  const info = await db.prepare(`PRAGMA table_info(${table})`).all<any>();
+  const exists = (info.results || []).some((row: any) => String(row.name) === column);
+  if (!exists) {
+    await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`).run();
+  }
+}
 
 async function ensureFeatureTables(db: D1Database) {
   if (featureTablesReady) return;
@@ -148,6 +162,47 @@ async function ensureFeatureTables(db: D1Database) {
         FOREIGN KEY (subscription_id) REFERENCES push_subscriptions(id)
       )
     `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS issue_photos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        issue_id INTEGER NOT NULL,
+        event_id INTEGER,
+        photo_key TEXT NOT NULL,
+        photo_kind TEXT NOT NULL DEFAULT 'action',
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (issue_id) REFERENCES issues(id),
+        FOREIGN KEY (event_id) REFERENCES issue_events(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS pump_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        location TEXT,
+        pump_name TEXT,
+        power_kw TEXT,
+        description TEXT,
+        photo_key TEXT,
+        status TEXT NOT NULL DEFAULT 'broken',
+        created_by_role TEXT NOT NULL,
+        created_by_name TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        closed_at TEXT
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS pump_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pump_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        actor_role TEXT NOT NULL,
+        actor_name TEXT NOT NULL,
+        message TEXT,
+        photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (pump_id) REFERENCES pump_records(id)
+      )
+    `),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_messages_status ON maintenance_messages(status)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_message_replies_message_id ON maintenance_message_replies(message_id)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_alerts_dates ON alerts(start_date, end_date)`),
@@ -156,7 +211,23 @@ async function ensureFeatureTables(db: D1Database) {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_auth_attempts_ip ON auth_login_attempts(ip, created_at)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_push_role ON push_subscriptions(role, active)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_push_notifications_pending ON push_notifications(subscription_id, delivered_at, id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_issue_photos_issue ON issue_photos(issue_id, event_id, id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_pump_records_status ON pump_records(status, updated_at)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_pump_events_pump ON pump_events(pump_id, id)`),
   ]);
+
+  // v1.6.0: rozšírenie pôvodných závad bez straty historických dát.
+  await ensureColumn(db, "issues", "reporter_role", "TEXT");
+  await ensureColumn(db, "issues", "destination_role", "TEXT NOT NULL DEFAULT 'maintenance'");
+  await ensureColumn(db, "issues", "assignee_role", "TEXT");
+  await ensureColumn(db, "issues", "assignee_name", "TEXT");
+  await ensureColumn(db, "issues", "issue_type", "TEXT NOT NULL DEFAULT 'issue'");
+  await ensureColumn(db, "issues", "source_record_id", "INTEGER");
+
+  await db.prepare(`UPDATE issues SET reporter_role='public' WHERE reporter_role IS NULL OR TRIM(reporter_role)=''`).run();
+  await db.prepare(`UPDATE issues SET destination_role='maintenance_manager' WHERE status='manager' AND (destination_role IS NULL OR destination_role='maintenance')`).run();
+  await db.prepare(`UPDATE issues SET destination_role='operations_manager' WHERE status='operations' AND (destination_role IS NULL OR destination_role='maintenance')`).run();
+  await db.prepare(`UPDATE issues SET assignee_role='maintenance',assignee_name=current_worker_name WHERE current_worker_name IS NOT NULL AND assignee_name IS NULL`).run();
 
   featureTablesReady = true;
 }
@@ -275,15 +346,29 @@ function clearSessionCookie(c: any) {
 }
 
 function roleSecret(env: Bindings, role: StaffRole) {
-  if (role === "maintenance") return String(env.MAINTENANCE_PASSWORD || "");
-  if (role === "maintenance_manager") return String(env.MANAGER_PASSWORD || "");
-  return String(env.OPERATIONS_PASSWORD || "");
+  if (role === "maintenance") return String(env.MAINTENANCE_PIN || env.MAINTENANCE_PASSWORD || "");
+  if (role === "maintenance_manager") return String(env.MANAGER_PIN || env.MANAGER_PASSWORD || "");
+  if (role === "operations_manager") return String(env.OPERATIONS_PIN || env.OPERATIONS_PASSWORD || "");
+  if (role === "lifeguard") return String(env.LIFEGUARD_PIN || "");
+  return String(env.SANITATION_PIN || "");
 }
 
 function roleLabel(role: StaffRole) {
-  if (role === "maintenance") return "Údržbár";
-  if (role === "maintenance_manager") return "Vedúci údržby";
-  return "Prevádzkový manažér";
+  if (role === "maintenance") return "Údržba a technológia";
+  if (role === "maintenance_manager") return "Vedúci Údržby a technológie";
+  if (role === "operations_manager") return "Prevádzkový manažér";
+  if (role === "lifeguard") return "Plavčíci";
+  return "Sanita";
+}
+
+function roleInitialStatus(role: StaffRole) {
+  if (role === "maintenance_manager") return "manager";
+  if (role === "operations_manager") return "operations";
+  return "new";
+}
+
+function isStaffRole(value: string): value is StaffRole {
+  return ALL_STAFF_ROLES.includes(value as StaffRole);
 }
 
 async function getSetting(db: D1Database, key: string) {
@@ -447,6 +532,79 @@ function scheduleNotification(
   }
 }
 
+function collectPhotoFiles(formData: FormData, maxPhotos = 3) {
+  const entries = [...formData.getAll("photos"), ...formData.getAll("photo")];
+  const seen = new Set<File>();
+  const files: File[] = [];
+  for (const entry of entries) {
+    if (entry instanceof File && entry.size > 0 && !seen.has(entry)) {
+      seen.add(entry);
+      files.push(entry);
+      if (files.length >= maxPhotos) break;
+    }
+  }
+  return files;
+}
+
+async function savePhotosFromForm(bucket: R2Bucket, formData: FormData, folder: string, maxPhotos = 3) {
+  const files = collectPhotoFiles(formData, maxPhotos);
+  const keys: string[] = [];
+  for (const file of files) keys.push(await savePhoto(bucket, file, folder));
+  return keys;
+}
+
+async function insertIssueEvent(
+  db: D1Database,
+  issueId: number,
+  eventType: string,
+  actorRole: string,
+  actorName: string,
+  message: string,
+  photoKeys: string[] = [],
+  photoKind = "action"
+) {
+  const result = await db.prepare(`
+    INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `).bind(issueId, eventType, actorRole, actorName, message || "", photoKeys[0] || null).run();
+  const eventId = Number(result.meta.last_row_id);
+  for (const key of photoKeys) {
+    await db.prepare(`
+      INSERT INTO issue_photos(issue_id,event_id,photo_key,photo_kind,created_at)
+      VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(issueId, eventId, key, photoKind).run();
+  }
+  return eventId;
+}
+
+async function addIssueRootPhotos(db: D1Database, issueId: number, eventId: number, photoKeys: string[]) {
+  for (const key of photoKeys) {
+    await db.prepare(`
+      INSERT INTO issue_photos(issue_id,event_id,photo_key,photo_kind,created_at)
+      VALUES (?, ?, ?, 'original', CURRENT_TIMESTAMP)
+    `).bind(issueId, eventId, key).run();
+  }
+}
+
+async function notifyIssueReporter(c: any, issue: any, title: string, body: string) {
+  const reporterRole = String(issue?.reporter_role || "");
+  const reporterName = String(issue?.reporter_name || "").trim();
+  if (isStaffRole(reporterRole) && reporterName) {
+    scheduleNotification(c, [reporterRole], title, body, "/", reporterName);
+  }
+}
+
+async function syncPumpFromClosedIssue(db: D1Database, issueId: number, actorRole: string, actorName: string) {
+  const issue = await db.prepare(`SELECT issue_type,source_record_id FROM issues WHERE id=?`).bind(issueId).first<any>();
+  if (issue?.issue_type !== "pump_install" || !issue?.source_record_id) return;
+  const pumpId = Number(issue.source_record_id);
+  await db.prepare(`UPDATE pump_records SET status='installed',updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP WHERE id=?`).bind(pumpId).run();
+  await db.prepare(`
+    INSERT INTO pump_events(pump_id,event_type,actor_role,actor_name,message,created_at)
+    VALUES (?, 'installed', ?, ?, 'Čerpadlo bolo namontované a úloha uzavretá.', CURRENT_TIMESTAMP)
+  `).bind(pumpId, actorRole, actorName).run();
+}
+
 function normalizeSearchText(value: string) {
   return value
     .normalize("NFD")
@@ -485,11 +643,11 @@ app.post("/api/auth/login", async (c) => {
     const body = await c.req.json();
     const role = String(body.role || "") as StaffRole;
     const name = String(body.name || "").trim();
-    const password = String(body.password || "");
-    if (!(["maintenance", "maintenance_manager", "operations_manager"] as string[]).includes(role)) {
+    const credential = String(body.pin || body.password || "");
+    if (!isStaffRole(role)) {
       return c.json({ success: false, error: "Neplatná rola." }, 400);
     }
-    if (!name || !password) return c.json({ success: false, error: "Zadajte meno a heslo." }, 400);
+    if (!name || !credential) return c.json({ success: false, error: "Vyberte meno a zadajte PIN." }, 400);
 
     const configuredPassword = roleSecret(c.env, role);
     const sessionSecret = String(c.env.SESSION_SECRET || "");
@@ -507,10 +665,10 @@ app.post("/api/auth/login", async (c) => {
       return c.json({ success: false, error: "Príliš veľa neúspešných pokusov. Skúste to o 15 minút." }, 429);
     }
 
-    const passwordOk = await constantTimeTextEqual(password, configuredPassword);
+    const passwordOk = await constantTimeTextEqual(credential, configuredPassword);
     if (!passwordOk) {
       await c.env.DB.prepare(`INSERT INTO auth_login_attempts(ip,created_at) VALUES (?,CURRENT_TIMESTAMP)`).bind(ip).run();
-      return c.json({ success: false, error: "Nesprávne heslo." }, 401);
+      return c.json({ success: false, error: "Nesprávny PIN." }, 401);
     }
 
     await c.env.DB.prepare(`DELETE FROM auth_login_attempts WHERE ip=?`).bind(ip).run();
@@ -664,6 +822,7 @@ app.use("/api/*", async (c, next) => {
 
   let roles: StaffRole[] | undefined;
   if (/^\/api\/issues\/\d+\/take$/.test(path) || /^\/api\/issues\/\d+\/status$/.test(path)) roles = ["maintenance"];
+  else if (/^\/api\/issues\/\d+\/action$/.test(path)) roles = ALL_STAFF_ROLES;
   else if (/^\/api\/issues\/\d+\/manager-action$/.test(path)) roles = ["maintenance_manager"];
   else if (/^\/api\/issues\/\d+\/operations-action$/.test(path) || path === "/api/operations/tasks") roles = ["operations_manager"];
   else if (/^\/api\/issues\/\d+\/rating$/.test(path)) roles = ["maintenance_manager", "operations_manager"];
@@ -672,12 +831,15 @@ app.use("/api/*", async (c, next) => {
   else if (path === "/api/alerts" && method === "GET") {
     const audience = c.req.query("audience") || "public";
     if (audience === "management") roles = ["maintenance_manager", "operations_manager"];
-    else if (audience === "maintenance") roles = ["maintenance", "maintenance_manager", "operations_manager"];
+    else if (audience === "maintenance") roles = ALL_STAFF_ROLES;
   }
   else if (path === "/api/messages" && method === "POST") roles = ["maintenance"];
   else if (/^\/api\/messages\/\d+\/(resolve|create-task)$/.test(path)) roles = ["maintenance_manager"];
   else if (/^\/api\/messages\/\d+\/reply$/.test(path)) roles = ["maintenance", "maintenance_manager"];
-  else if (path.startsWith("/api/push/")) roles = ["maintenance", "maintenance_manager", "operations_manager"];
+  else if (path.startsWith("/api/push/")) roles = ALL_STAFF_ROLES;
+  else if (path === "/api/pumps" && method === "GET") roles = ["maintenance", "maintenance_manager", "operations_manager"];
+  else if (path === "/api/pumps" && method === "POST") roles = ["maintenance", "maintenance_manager"];
+  else if (/^\/api\/pumps\/\d+\/(action|events)$/.test(path)) roles = ["maintenance", "maintenance_manager", "operations_manager"];
 
   const auth = await requireStaff(c, roles);
   if (auth.response) return auth.response;
@@ -720,39 +882,52 @@ app.get("/api/photo", async (c) => {
 
 app.post("/api/issues", async (c) => {
   try {
+    await ensureFeatureTables(c.env.DB);
     const formData = await c.req.formData();
-    const reporterName = String(formData.get("reporter_name") || "").trim();
+    const session = await getSession(c);
+    const reporterName = session?.name || String(formData.get("reporter_name") || "").trim();
+    const reporterRole = session?.role || "public";
     const location = String(formData.get("location") || "").trim();
     const description = String(formData.get("description") || "").trim();
+    const destinationRoleRaw = String(formData.get("destination_role") || "maintenance").trim();
+    const destinationRole = isStaffRole(destinationRoleRaw) ? destinationRoleRaw : "maintenance";
     if (!reporterName || !location || !description) {
       return c.json({ success: false, error: "Chýba meno, miesto alebo popis závady." }, 400);
     }
-    let photoKey: string | null = null;
-    const photo = formData.get("photo");
-    if (photo instanceof File && photo.size > 0) {
-      try {
-        photoKey = await savePhoto(c.env.PHOTOS, photo, "issues/original");
-      } catch (error) {
-        return c.json({ success: false, error: error instanceof Error ? error.message : "Fotografiu sa nepodarilo uložiť." }, 400);
-      }
+
+    let photoKeys: string[] = [];
+    try {
+      photoKeys = await savePhotosFromForm(c.env.PHOTOS, formData, "issues/original", 3);
+    } catch (error) {
+      return c.json({ success: false, error: error instanceof Error ? error.message : "Fotografie sa nepodarilo uložiť." }, 400);
     }
+
+    const initialStatus = roleInitialStatus(destinationRole);
     const result = await c.env.DB.prepare(`
-      INSERT INTO issues (reporter_name,location,description,photo_key,status,created_at,updated_at)
-      VALUES (?, ?, ?, ?, 'new', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    `).bind(reporterName, location, description, photoKey).run();
-    const issueId = result.meta.last_row_id;
-    await c.env.DB.prepare(`
+      INSERT INTO issues (
+        reporter_name,reporter_role,location,description,photo_key,status,destination_role,
+        assignee_role,assignee_name,issue_type,created_at,updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 'issue', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).bind(
+      reporterName, reporterRole, location, description, photoKeys[0] || null, initialStatus, destinationRole
+    ).run();
+    const issueId = Number(result.meta.last_row_id);
+    const eventResult = await c.env.DB.prepare(`
       INSERT INTO issue_events (issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
-      VALUES (?, 'created', 'reporter', ?, ?, ?, CURRENT_TIMESTAMP)
-    `).bind(issueId, reporterName, "Závada bola nahlásená.", photoKey).run();
+      VALUES (?, 'created', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(
+      issueId, reporterRole, reporterName, `Závada bola nahlásená a adresovaná: ${roleLabel(destinationRole)}.`, photoKeys[0] || null
+    ).run();
+    await addIssueRootPhotos(c.env.DB, issueId, Number(eventResult.meta.last_row_id), photoKeys);
+
     scheduleNotification(
       c,
-      ["maintenance"],
+      [destinationRole],
       "🔧 Nová závada",
       `#${String(issueId).padStart(4, "0")} - ${location}: ${description.slice(0, 90)}`,
       "/"
     );
-    return c.json({ success: true, issue_id: issueId, photo_key: photoKey });
+    return c.json({ success: true, issue_id: issueId, photo_key: photoKeys[0] || null, photo_keys: photoKeys, destination_role: destinationRole });
   } catch (error) {
     console.error(error);
     return c.json({ success: false, error: "Nepodarilo sa uložiť závadu." }, 500);
@@ -761,15 +936,22 @@ app.post("/api/issues", async (c) => {
 
 app.get("/api/issues", async (c) => {
   try {
+    await ensureFeatureTables(c.env.DB);
     const result = await c.env.DB.prepare(`
       SELECT
         i.id,
         i.reporter_name,
+        i.reporter_role,
         i.location,
         i.description,
         i.photo_key,
         i.status,
         i.current_worker_name,
+        i.assignee_role,
+        i.assignee_name,
+        i.destination_role,
+        i.issue_type,
+        i.source_record_id,
         i.last_actor_name,
         i.created_at,
         i.updated_at,
@@ -789,11 +971,150 @@ app.get("/api/issues", async (c) => {
         ), 0) AS rating_down_count
       FROM issues i
       ORDER BY i.id DESC
-    `).all();
-    return c.json({ success: true, issues: result.results });
+    `).all<any>();
+    const rows = result.results || [];
+    const photoResult = await c.env.DB.prepare(`SELECT issue_id,event_id,photo_key,photo_kind FROM issue_photos ORDER BY id`).all<any>();
+    const byIssue = new Map<number, string[]>();
+    for (const photo of photoResult.results || []) {
+      const issueId = Number(photo.issue_id);
+      const arr = byIssue.get(issueId) || [];
+      if (!arr.includes(String(photo.photo_key))) arr.push(String(photo.photo_key));
+      byIssue.set(issueId, arr);
+    }
+    const issues = rows.map((row: any) => ({
+      ...row,
+      destination_role: row.destination_role || (row.status === 'manager' ? 'maintenance_manager' : row.status === 'operations' ? 'operations_manager' : 'maintenance'),
+      assignee_name: row.assignee_name || row.current_worker_name || null,
+      photo_keys: byIssue.get(Number(row.id)) || (row.photo_key ? [row.photo_key] : []),
+    }));
+    return c.json({ success: true, issues });
   } catch (error) {
     console.error(error);
     return c.json({ success: false, error: "Nepodarilo sa načítať závady." }, 500);
+  }
+});
+
+app.post("/api/issues/:id/action", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const session = await getSession(c);
+    if (!session) return c.json({ success: false, error: "Prihlásenie vypršalo." }, 401);
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) return c.json({ success: false, error: "Neplatné číslo závady." }, 400);
+    const formData = await c.req.formData();
+    const action = String(formData.get("action") || "").trim();
+    const message = String(formData.get("message") || "").trim();
+    const targetRaw = String(formData.get("target_role") || "").trim();
+    const targetRole = isStaffRole(targetRaw) ? targetRaw : null;
+    if (!["take", "takeover", "material", "transfer", "close", "comment", "reopen"].includes(action)) {
+      return c.json({ success: false, error: "Neplatná akcia." }, 400);
+    }
+
+    const issue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+    if (!issue) return c.json({ success: false, error: "Závada nebola nájdená." }, 404);
+    const destinationRole = isStaffRole(String(issue.destination_role || ""))
+      ? String(issue.destination_role) as StaffRole
+      : (issue.status === "manager" ? "maintenance_manager" : issue.status === "operations" ? "operations_manager" : "maintenance");
+    const canWork = destinationRole === session.role;
+    if (!canWork && action !== "reopen") {
+      return c.json({ success: false, error: `Závada je aktuálne adresovaná: ${roleLabel(destinationRole)}.` }, 403);
+    }
+    if (action === "reopen" && !["maintenance_manager", "operations_manager"].includes(session.role)) {
+      return c.json({ success: false, error: "Znovu otvoriť závadu môže vedúci alebo prevádzkový manažér." }, 403);
+    }
+
+    let photoKeys: string[] = [];
+    try {
+      photoKeys = await savePhotosFromForm(c.env.PHOTOS, formData, `issues/actions/${action}`, 3);
+    } catch (error) {
+      return c.json({ success: false, error: error instanceof Error ? error.message : "Fotografie sa nepodarilo uložiť." }, 400);
+    }
+
+    let eventType = action;
+    let defaultMessage = "";
+    const hadAssignee = Boolean(issue.assignee_name || issue.current_worker_name);
+
+    if (action === "take" || action === "takeover") {
+      if (issue.status === "closed") return c.json({ success: false, error: "Uzavretú závadu nie je možné prevziať." }, 409);
+      const wasDifferent = hadAssignee && String(issue.assignee_name || issue.current_worker_name).toLowerCase() !== session.name.toLowerCase();
+      eventType = wasDifferent ? "taken_over" : "taken";
+      defaultMessage = wasDifferent
+        ? `${session.name} prevzal závadu od kolegu.`
+        : `${session.name} prevzal závadu.`;
+      await c.env.DB.prepare(`
+        UPDATE issues
+        SET status='progress',assignee_role=?,assignee_name=?,current_worker_name=CASE WHEN ?='maintenance' THEN ? ELSE current_worker_name END,
+            last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        WHERE id=?
+      `).bind(session.role, session.name, session.role, session.name, session.name, id).run();
+      if (!hadAssignee) {
+        await notifyIssueReporter(c, issue, "🔧 Vaša závada bola prevzatá", `Závadu #${String(id).padStart(4, "0")} prevzal ${session.name}.`);
+      }
+    } else if (action === "material") {
+      if (issue.status === "closed") return c.json({ success: false, error: "Uzavretú závadu nie je možné meniť." }, 409);
+      eventType = "material_requested";
+      defaultMessage = "Závada čaká na materiál.";
+      await c.env.DB.prepare(`
+        UPDATE issues SET status='material',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL WHERE id=?
+      `).bind(session.name, id).run();
+    } else if (action === "transfer") {
+      if (!targetRole) return c.json({ success: false, error: "Vyberte, komu chcete závadu posunúť." }, 400);
+      if (issue.status === "closed") return c.json({ success: false, error: "Uzavretú závadu najprv znovu otvorte." }, 409);
+      eventType = "transferred";
+      defaultMessage = `Závada bola posunutá: ${roleLabel(session.role)} → ${roleLabel(targetRole)}.`;
+      const targetStatus = roleInitialStatus(targetRole);
+      await c.env.DB.prepare(`
+        UPDATE issues
+        SET status=?,destination_role=?,assignee_role=NULL,assignee_name=NULL,current_worker_name=NULL,
+            last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        WHERE id=?
+      `).bind(targetStatus, targetRole, session.name, id).run();
+      scheduleNotification(c, [targetRole], "↪️ Nová pridelená závada", `Závada #${String(id).padStart(4, "0")} bola adresovaná: ${roleLabel(targetRole)}.`, "/");
+    } else if (action === "close") {
+      if (issue.status === "closed") return c.json({ success: false, error: "Závada je už uzavretá." }, 409);
+      eventType = "resolved";
+      defaultMessage = "Závada bola vyriešená a uzavretá.";
+      await c.env.DB.prepare(`
+        UPDATE issues
+        SET status='closed',assignee_role=?,assignee_name=?,current_worker_name=CASE WHEN ?='maintenance' THEN ? ELSE current_worker_name END,
+            last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP
+        WHERE id=?
+      `).bind(session.role, session.name, session.role, session.name, session.name, id).run();
+      await notifyIssueReporter(c, issue, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
+      await syncPumpFromClosedIssue(c.env.DB, id, session.role, session.name);
+    } else if (action === "comment") {
+      eventType = "comment";
+      defaultMessage = "Doplnená poznámka k závade.";
+      await c.env.DB.prepare(`UPDATE issues SET last_actor_name=?,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name, id).run();
+    } else if (action === "reopen") {
+      if (issue.status !== "closed") return c.json({ success: false, error: "Znovu otvoriť je možné iba uzavretú závadu." }, 409);
+      const reopenTarget = targetRole || destinationRole;
+      eventType = "reopened";
+      defaultMessage = `Závada bola znovu otvorená a adresovaná: ${roleLabel(reopenTarget)}.`;
+      await c.env.DB.prepare(`
+        UPDATE issues
+        SET status=?,destination_role=?,assignee_role=NULL,assignee_name=NULL,current_worker_name=NULL,
+            last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        WHERE id=?
+      `).bind(roleInitialStatus(reopenTarget), reopenTarget, session.name, id).run();
+      scheduleNotification(c, [reopenTarget], "↻ Závada znovu otvorená", `Závada #${String(id).padStart(4, "0")} je znovu otvorená.`, "/");
+    }
+
+    await insertIssueEvent(
+      c.env.DB,
+      id,
+      eventType,
+      session.role,
+      session.name,
+      message || defaultMessage,
+      photoKeys,
+      action === "close" ? "resolved" : "action"
+    );
+    const updated = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+    return c.json({ success: true, issue: updated, photo_keys: photoKeys });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Akciu sa nepodarilo uložiť." }, 500);
   }
 });
 
@@ -805,15 +1126,19 @@ app.post("/api/issues/:id/take", async (c) => {
     const session = await getSession(c);
     const workerName = session?.name || String(body.worker_name || "").trim();
     if (!workerName) return c.json({ success: false, error: "Chýba meno údržbára." }, 400);
+    const issueBeforeTake = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
     const updateResult = await c.env.DB.prepare(`
-      UPDATE issues SET status='progress',current_worker_name=?,last_actor_name=?,updated_at=CURRENT_TIMESTAMP
+      UPDATE issues SET status='progress',destination_role='maintenance',assignee_role='maintenance',assignee_name=?,current_worker_name=?,last_actor_name=?,updated_at=CURRENT_TIMESTAMP
       WHERE id=? AND status='new'
-    `).bind(workerName, workerName, id).run();
+    `).bind(workerName, workerName, workerName, id).run();
     if (!updateResult.meta.changes) return c.json({ success: false, error: "Závadu už pravdepodobne prevzal iný pracovník." }, 409);
     await c.env.DB.prepare(`
       INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,created_at)
       VALUES (?, 'taken', 'maintenance', ?, ?, CURRENT_TIMESTAMP)
     `).bind(id, workerName, "Údržbár prevzal závadu.").run();
+    if (issueBeforeTake) {
+      await notifyIssueReporter(c, issueBeforeTake, "🔧 Vaša závada bola prevzatá", `Závadu #${String(id).padStart(4, "0")} prevzal ${workerName}.`);
+    }
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     return c.json({ success: true, issue: updatedIssue });
   } catch (error) {
@@ -849,9 +1174,12 @@ app.post("/api/issues/:id/status", async (c) => {
     }
     const closedSql = status === "closed" ? "CURRENT_TIMESTAMP" : "NULL";
     const updateResult = await c.env.DB.prepare(`
-      UPDATE issues SET status=?,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=${closedSql}
+      UPDATE issues SET status=?,destination_role=CASE WHEN ? IN ('manager','material') THEN 'maintenance_manager' ELSE destination_role END,
+        assignee_role=CASE WHEN ? IN ('manager','material') THEN NULL ELSE assignee_role END,
+        assignee_name=CASE WHEN ? IN ('manager','material') THEN NULL ELSE assignee_name END,
+        last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=${closedSql}
       WHERE id=? AND status='progress'
-    `).bind(status, workerName, id).run();
+    `).bind(status, status, status, status, workerName, id).run();
     if (!updateResult.meta.changes) return c.json({ success: false, error: "Stav závady sa medzitým zmenil. Obnovte zoznam." }, 409);
     let eventType = "updated";
     if (status === "closed") eventType = "resolved";
@@ -862,6 +1190,11 @@ app.post("/api/issues/:id/status", async (c) => {
       VALUES (?, ?, 'maintenance', ?, ?, ?, CURRENT_TIMESTAMP)
     `).bind(id, eventType, workerName, message, actionPhotoKey).run();
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
+    if (status === "closed") {
+      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+      if (issueForNotify) await notifyIssueReporter(c, issueForNotify, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
+      await syncPumpFromClosedIssue(c.env.DB, id, "maintenance", workerName);
+    }
     if (status === "material") {
       scheduleNotification(c, ["maintenance_manager"], "📦 Čaká na materiál", `Závada #${String(id).padStart(4, "0")} čaká na materiál.`, "/");
     } else if (status === "manager") {
@@ -917,7 +1250,7 @@ app.post("/api/issues/:id/manager-action", async (c) => {
     let eventType = "";
     if (action === "return") {
       await c.env.DB.prepare(`
-        UPDATE issues SET status='new',current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        UPDATE issues SET status='new',destination_role='maintenance',assignee_role=NULL,assignee_name=NULL,current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status IN ('manager','material')
       `).bind(managerName, id).run();
       eventType = "returned_to_maintenance";
@@ -929,13 +1262,13 @@ app.post("/api/issues/:id/manager-action", async (c) => {
       eventType = "manager_resolved";
     } else if (action === "operations") {
       await c.env.DB.prepare(`
-        UPDATE issues SET status='operations',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        UPDATE issues SET status='operations',destination_role='operations_manager',assignee_role=NULL,assignee_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status IN ('manager','material')
       `).bind(managerName, id).run();
       eventType = "escalated_to_operations";
     } else if (action === "reopen") {
       await c.env.DB.prepare(`
-        UPDATE issues SET status='new',current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        UPDATE issues SET status='new',destination_role='maintenance',assignee_role=NULL,assignee_name=NULL,current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status='closed'
       `).bind(managerName, id).run();
       eventType = "reopened_by_manager";
@@ -946,6 +1279,11 @@ app.post("/api/issues/:id/manager-action", async (c) => {
       VALUES (?, ?, 'maintenance_manager', ?, ?, ?, CURRENT_TIMESTAMP)
     `).bind(id, eventType, managerName, message, photoKey).run();
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
+    if (action === "close") {
+      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+      if (issueForNotify) await notifyIssueReporter(c, issueForNotify, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
+      await syncPumpFromClosedIssue(c.env.DB, id, "maintenance_manager", managerName);
+    }
     if (action === "return" || action === "reopen") {
       scheduleNotification(c, ["maintenance"], action === "reopen" ? "↻ Závada znovu otvorená" : "↩️ Závada vrátená údržbe", `Závada #${String(id).padStart(4, "0")} je opäť medzi novými úlohami.`, "/");
     } else if (action === "operations") {
@@ -1007,13 +1345,13 @@ app.post("/api/issues/:id/operations-action", async (c) => {
       eventType = "operations_resolved";
     } else if (action === "reopen") {
       await c.env.DB.prepare(`
-        UPDATE issues SET status='new',current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        UPDATE issues SET status='new',destination_role='maintenance',assignee_role=NULL,assignee_name=NULL,current_worker_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status='closed'
       `).bind(operationsName, id).run();
       eventType = "reopened_by_operations";
     } else {
       await c.env.DB.prepare(`
-        UPDATE issues SET status='manager',last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
+        UPDATE issues SET status='manager',destination_role='maintenance_manager',assignee_role=NULL,assignee_name=NULL,last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=NULL
         WHERE id=? AND status='operations'
       `).bind(operationsName, id).run();
       eventType = "returned_to_manager";
@@ -1024,6 +1362,11 @@ app.post("/api/issues/:id/operations-action", async (c) => {
       VALUES (?, ?, 'operations_manager', ?, ?, ?, CURRENT_TIMESTAMP)
     `).bind(id, eventType, operationsName, message, photoKey).run();
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
+    if (action === "close") {
+      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+      if (issueForNotify) await notifyIssueReporter(c, issueForNotify, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
+      await syncPumpFromClosedIssue(c.env.DB, id, "operations_manager", operationsName);
+    }
     if (action === "return_manager") {
       scheduleNotification(c, ["maintenance_manager"], "↩️ Úloha vrátená vedúcemu", `Závada #${String(id).padStart(4, "0")} bola vrátená vedúcemu údržby.`, "/");
     } else if (action === "reopen") {
@@ -1056,8 +1399,8 @@ app.post("/api/operations/tasks", async (c) => {
       }
     }
     const result = await c.env.DB.prepare(`
-      INSERT INTO issues (reporter_name,location,description,photo_key,status,last_actor_name,created_at,updated_at)
-      VALUES (?, ?, ?, ?, 'manager', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      INSERT INTO issues (reporter_name,reporter_role,location,description,photo_key,status,destination_role,issue_type,last_actor_name,created_at,updated_at)
+      VALUES (?, 'operations_manager', ?, ?, ?, 'manager', 'maintenance_manager', 'issue', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).bind(operationsName, location, description, photoKey, operationsName).run();
     const issueId = result.meta.last_row_id;
     await c.env.DB.prepare(`
@@ -1193,8 +1536,22 @@ app.get("/api/issues/:id/events", async (c) => {
     const result = await c.env.DB.prepare(`
       SELECT id,issue_id,event_type,actor_role,actor_name,message,photo_key,created_at
       FROM issue_events WHERE issue_id=? ORDER BY id DESC
-    `).bind(id).all();
-    return c.json({ success: true, events: result.results });
+    `).bind(id).all<any>();
+    const photos = await c.env.DB.prepare(`
+      SELECT event_id,photo_key FROM issue_photos WHERE issue_id=? AND event_id IS NOT NULL ORDER BY id
+    `).bind(id).all<any>();
+    const byEvent = new Map<number, string[]>();
+    for (const photo of photos.results || []) {
+      const eventId = Number(photo.event_id);
+      const arr = byEvent.get(eventId) || [];
+      if (!arr.includes(String(photo.photo_key))) arr.push(String(photo.photo_key));
+      byEvent.set(eventId, arr);
+    }
+    const events = (result.results || []).map((row: any) => ({
+      ...row,
+      photo_keys: byEvent.get(Number(row.id)) || (row.photo_key ? [row.photo_key] : []),
+    }));
+    return c.json({ success: true, events });
   } catch (error) {
     console.error(error);
     return c.json({ success: false, error: "Nepodarilo sa načítať históriu." }, 500);
@@ -1305,11 +1662,10 @@ app.post("/api/issues/:id/duplicate-report", async (c) => {
       return c.json({ success: false, error: "Chýba meno alebo popis hlásenia." }, 400);
     }
 
-    let photoKey: string | null = null;
-    const photo = formData.get("photo");
-    if (photo instanceof File && photo.size > 0) {
-      photoKey = await savePhoto(c.env.PHOTOS, photo, "issues/duplicate-reports");
-    }
+    const photoKeys = await savePhotosFromForm(c.env.PHOTOS, formData, "issues/duplicate-reports", 3);
+    const session = await getSession(c);
+    const actorRole = session?.role || "reporter";
+    const actorName = session?.name || reporterName;
 
     const message = [
       "Ďalšie hlásenie rovnakej závady.",
@@ -1317,10 +1673,7 @@ app.post("/api/issues/:id/duplicate-report", async (c) => {
       `Popis: ${description}`,
     ].filter(Boolean).join(" ");
 
-    await c.env.DB.prepare(`
-      INSERT INTO issue_events(issue_id,event_type,actor_role,actor_name,message,photo_key,created_at)
-      VALUES (?, 'duplicate_report', 'reporter', ?, ?, ?, CURRENT_TIMESTAMP)
-    `).bind(id, reporterName, message, photoKey).run();
+    await insertIssueEvent(c.env.DB, id, "duplicate_report", actorRole, actorName, message, photoKeys, "duplicate_report");
 
     await c.env.DB.prepare(`
       UPDATE issues SET updated_at=CURRENT_TIMESTAMP WHERE id=?
@@ -1519,8 +1872,8 @@ app.post("/api/messages/:id/create-task", async (c) => {
     if (!message) return c.json({ success: false, error: "Správa nebola nájdená." }, 404);
 
     const result = await c.env.DB.prepare(`
-      INSERT INTO issues(reporter_name,location,description,photo_key,status,last_actor_name,created_at,updated_at)
-      VALUES (?, ?, ?, ?, 'new', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      INSERT INTO issues(reporter_name,reporter_role,location,description,photo_key,status,destination_role,issue_type,last_actor_name,created_at,updated_at)
+      VALUES (?, 'maintenance_manager', ?, ?, ?, 'new', 'maintenance', 'issue', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).bind(
       managerName,
       "Požiadavka údržby",
@@ -1659,6 +2012,154 @@ app.post("/api/alerts/:id/archive", async (c) => {
 });
 
 /* =========================================================
+   ČERPADLÁ - JEDNODUCHÁ EVIDENCIA OPRÁV
+   ========================================================= */
+
+app.get("/api/pumps", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const result = await c.env.DB.prepare(`
+      SELECT p.*,
+        COALESCE((SELECT COUNT(*) FROM pump_events e WHERE e.pump_id=p.id),0) AS event_count
+      FROM pump_records p
+      ORDER BY p.updated_at DESC,p.id DESC
+    `).all<any>();
+    return c.json({ success: true, pumps: result.results || [] });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Evidenciu čerpadiel sa nepodarilo načítať." }, 500);
+  }
+});
+
+app.post("/api/pumps", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const session = await getSession(c);
+    if (!session || !["maintenance", "maintenance_manager"].includes(session.role)) {
+      return c.json({ success: false, error: "Na vytvorenie záznamu nemáte oprávnenie." }, 403);
+    }
+    const formData = await c.req.formData();
+    const location = String(formData.get("location") || "").trim();
+    const pumpName = String(formData.get("pump_name") || "").trim();
+    const powerKw = String(formData.get("power_kw") || "").trim();
+    const description = String(formData.get("description") || "").trim();
+    let photoKey: string | null = null;
+    const photo = collectPhotoFiles(formData, 1)[0];
+    if (photo) photoKey = await savePhoto(c.env.PHOTOS, photo, "pumps/original");
+
+    const result = await c.env.DB.prepare(`
+      INSERT INTO pump_records(location,pump_name,power_kw,description,photo_key,status,created_by_role,created_by_name,created_at,updated_at)
+      VALUES (?, ?, ?, ?, ?, 'broken', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).bind(location || null, pumpName || null, powerKw || null, description || null, photoKey, session.role, session.name).run();
+    const pumpId = Number(result.meta.last_row_id);
+    await c.env.DB.prepare(`
+      INSERT INTO pump_events(pump_id,event_type,actor_role,actor_name,message,photo_key,created_at)
+      VALUES (?, 'created', ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(pumpId, session.role, session.name, description || "Založený záznam poruchy čerpadla.", photoKey).run();
+    return c.json({ success: true, pump_id: pumpId });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: error instanceof Error ? error.message : "Záznam čerpadla sa nepodarilo vytvoriť." }, 500);
+  }
+});
+
+app.get("/api/pumps/:id/events", async (c) => {
+  try {
+    const id = Number(c.req.param("id"));
+    const result = await c.env.DB.prepare(`SELECT * FROM pump_events WHERE pump_id=? ORDER BY id DESC`).bind(id).all<any>();
+    return c.json({ success: true, events: result.results || [] });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: "Históriu čerpadla sa nepodarilo načítať." }, 500);
+  }
+});
+
+app.post("/api/pumps/:id/action", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const session = await getSession(c);
+    if (!session || !["maintenance", "maintenance_manager"].includes(session.role)) {
+      return c.json({ success: false, error: "Na úpravu evidencie čerpadiel nemáte oprávnenie." }, 403);
+    }
+    const id = Number(c.req.param("id"));
+    if (!Number.isInteger(id) || id <= 0) return c.json({ success: false, error: "Neplatné číslo čerpadla." }, 400);
+    const pump = await c.env.DB.prepare(`SELECT * FROM pump_records WHERE id=?`).bind(id).first<any>();
+    if (!pump) return c.json({ success: false, error: "Záznam čerpadla nebol nájdený." }, 404);
+
+    const formData = await c.req.formData();
+    const action = String(formData.get("action") || "").trim();
+    const message = String(formData.get("message") || "").trim();
+    if (!["broken", "send_repair", "returned_stock", "returned_install", "installed", "comment"].includes(action)) {
+      return c.json({ success: false, error: "Neplatná akcia čerpadla." }, 400);
+    }
+    let photoKey: string | null = null;
+    const photo = collectPhotoFiles(formData, 1)[0];
+    if (photo) photoKey = await savePhoto(c.env.PHOTOS, photo, `pumps/${action}`);
+
+    let nextStatus = String(pump.status || "broken");
+    let eventMessage = message;
+    if (action === "broken") {
+      nextStatus = "broken";
+      eventMessage ||= "Čerpadlo označené ako pokazené.";
+    } else if (action === "send_repair") {
+      nextStatus = "repair";
+      eventMessage ||= "Čerpadlo odoslané do opravy.";
+    } else if (action === "returned_stock") {
+      nextStatus = "stock";
+      eventMessage ||= "Čerpadlo sa vrátilo z opravy a bolo uložené na sklad.";
+    } else if (action === "returned_install") {
+      nextStatus = "install";
+      eventMessage ||= "Čerpadlo sa vrátilo z opravy a čaká na montáž.";
+    } else if (action === "installed") {
+      nextStatus = "installed";
+      eventMessage ||= "Čerpadlo bolo namontované a je funkčné.";
+    } else {
+      eventMessage ||= "Doplnená poznámka k čerpadlu.";
+    }
+
+    const closedAt = ["stock", "installed"].includes(nextStatus) ? "CURRENT_TIMESTAMP" : "NULL";
+    await c.env.DB.prepare(`
+      UPDATE pump_records SET status=?,updated_at=CURRENT_TIMESTAMP,closed_at=${closedAt} WHERE id=?
+    `).bind(nextStatus, id).run();
+    await c.env.DB.prepare(`
+      INSERT INTO pump_events(pump_id,event_type,actor_role,actor_name,message,photo_key,created_at)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `).bind(id, action, session.role, session.name, eventMessage, photoKey).run();
+
+    let issueId: number | null = null;
+    if (action === "returned_install") {
+      const location = String(pump.location || "").trim();
+      const pumpLabel = String(pump.pump_name || "Čerpadlo").trim() || "Čerpadlo";
+      const description = `Namontovať čerpadlo po oprave: ${pumpLabel}${pump.power_kw ? ` • ${pump.power_kw} kW` : ""}.`;
+      const issueResult = await c.env.DB.prepare(`
+        INSERT INTO issues(
+          reporter_name,reporter_role,location,description,photo_key,status,destination_role,
+          assignee_role,assignee_name,issue_type,source_record_id,last_actor_name,created_at,updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'new', 'maintenance', NULL, NULL, 'pump_install', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).bind(session.name, session.role, location || "Čerpadlo - montáž", description, pump.photo_key || photoKey || null, id, session.name).run();
+      issueId = Number(issueResult.meta.last_row_id);
+      await insertIssueEvent(
+        c.env.DB,
+        issueId,
+        "pump_install_created",
+        session.role,
+        session.name,
+        `Čerpadlo #${id} prišlo z opravy a bolo zaradené medzi úlohy na montáž.`,
+        [],
+        "action"
+      );
+      scheduleNotification(c, ["maintenance"], "🔩 Čerpadlo na montáž", `Čerpadlo #${id} prišlo z opravy a čaká na montáž.`, "/");
+    }
+
+    const updated = await c.env.DB.prepare(`SELECT * FROM pump_records WHERE id=?`).bind(id).first<any>();
+    return c.json({ success: true, pump: updated, issue_id: issueId });
+  } catch (error) {
+    console.error(error);
+    return c.json({ success: false, error: error instanceof Error ? error.message : "Zmenu čerpadla sa nepodarilo uložiť." }, 500);
+  }
+});
+
+/* =========================================================
    DIAGNOSTIKA / API 404
    ========================================================= */
 
@@ -1666,24 +2167,30 @@ app.get("/api/features-health", async (c) => {
   try {
     await ensureFeatureTables(c.env.DB);
     const securityReady = Boolean(
-      c.env.MAINTENANCE_PASSWORD &&
-      c.env.MANAGER_PASSWORD &&
-      c.env.OPERATIONS_PASSWORD &&
+      roleSecret(c.env, "maintenance") &&
+      roleSecret(c.env, "maintenance_manager") &&
+      roleSecret(c.env, "operations_manager") &&
+      roleSecret(c.env, "lifeguard") &&
+      roleSecret(c.env, "sanitation") &&
       c.env.SESSION_SECRET &&
       String(c.env.SESSION_SECRET).length >= 32
     );
     return c.json({
       success: true,
-      version: "1.5.0",
+      version: "1.6.0",
       alerts: true,
       messages: true,
       offline_drafts: true,
+      multi_department: true,
+      multi_photo: true,
+      pumps: true,
+      pin_login: true,
       push: true,
       production_auth_ready: securityReady,
     });
   } catch (error) {
     console.error(error);
-    return c.json({ success: false, version: "1.5.0" }, 500);
+    return c.json({ success: false, version: "1.6.0" }, 500);
   }
 });
 
