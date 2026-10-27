@@ -8,9 +8,13 @@ type Bindings = {
   OPERATIONS_PASSWORD?: string;
   MAINTENANCE_PIN?: string;
   MANAGER_PIN?: string;
+  MANAGER_LUBOS_PIN?: string;
+  MANAGER_PETER_PIN?: string;
+  MANAGER_JAROSLAV_PIN?: string;
   OPERATIONS_PIN?: string;
   LIFEGUARD_PIN?: string;
   SANITATION_PIN?: string;
+  SHOPPING_PIN?: string;
   SESSION_SECRET?: string;
 };
 
@@ -202,6 +206,124 @@ async function ensureFeatureTables(db: D1Database) {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (pump_id) REFERENCES pump_records(id)
       )
+    `),,
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS handover_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        author_role TEXT NOT NULL,
+        author_name TEXT NOT NULL,
+        text TEXT NOT NULL,
+        priority TEXT NOT NULL DEFAULT 'normal',
+        photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS handover_note_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id INTEGER NOT NULL,
+        author_role TEXT NOT NULL,
+        author_name TEXT NOT NULL,
+        text TEXT NOT NULL,
+        photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (note_id) REFERENCES handover_notes(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS handover_note_ack (
+        note_id INTEGER NOT NULL,
+        user_name TEXT NOT NULL,
+        acknowledged_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY(note_id,user_name),
+        FOREIGN KEY (note_id) REFERENCES handover_notes(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS management_tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        description TEXT,
+        status TEXT NOT NULL DEFAULT 'new',
+        priority TEXT NOT NULL DEFAULT 'normal',
+        owner_name TEXT,
+        created_by_role TEXT NOT NULL,
+        created_by_name TEXT NOT NULL,
+        photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        closed_at TEXT
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS management_task_comments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id INTEGER NOT NULL,
+        author_role TEXT NOT NULL,
+        author_name TEXT NOT NULL,
+        text TEXT NOT NULL,
+        photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (task_id) REFERENCES management_tasks(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS reminders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        title TEXT NOT NULL,
+        due_date TEXT NOT NULL,
+        due_time TEXT,
+        source_note_id INTEGER,
+        created_by_role TEXT NOT NULL,
+        created_by_name TEXT NOT NULL,
+        morning_sent_at TEXT,
+        evening_sent_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (source_note_id) REFERENCES handover_notes(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS purchase_requests (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        requester_name TEXT NOT NULL,
+        requester_role TEXT,
+        item_name TEXT NOT NULL,
+        quantity TEXT,
+        price TEXT,
+        price_kind TEXT,
+        note TEXT,
+        priority TEXT NOT NULL DEFAULT 'normal',
+        photo_key TEXT,
+        status TEXT NOT NULL DEFAULT 'pending',
+        rejection_reason TEXT,
+        approved_by_name TEXT,
+        approved_at TEXT,
+        purchased_at TEXT,
+        source_issue_id INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS purchase_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        actor_role TEXT,
+        actor_name TEXT,
+        message TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (purchase_id) REFERENCES purchase_requests(id)
+      )
+    `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS shopping_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        token_hash TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TEXT NOT NULL
+      )
     `),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_messages_status ON maintenance_messages(status)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_message_replies_message_id ON maintenance_message_replies(message_id)`),
@@ -214,6 +336,13 @@ async function ensureFeatureTables(db: D1Database) {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_issue_photos_issue ON issue_photos(issue_id, event_id, id)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_pump_records_status ON pump_records(status, updated_at)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_pump_events_pump ON pump_events(pump_id, id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_handover_notes_updated ON handover_notes(updated_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_handover_comments_note ON handover_note_comments(note_id,id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_management_tasks_status ON management_tasks(status,updated_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_management_task_comments_task ON management_task_comments(task_id,id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_reminders_date ON reminders(due_date,due_time)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_purchase_status ON purchase_requests(status,priority,created_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_purchase_requester ON purchase_requests(requester_name,created_at DESC)`),
   ]);
 
   // v1.6.0: rozšírenie pôvodných závad bez straty historických dát.
@@ -353,10 +482,34 @@ function roleSecret(env: Bindings, role: StaffRole) {
   return String(env.SANITATION_PIN || "");
 }
 
+async function resolveLoginIdentity(env: Bindings, role: StaffRole, suppliedName: string, credential: string) {
+  if (role === "maintenance_manager") {
+    const managerPins: Array<[string, string]> = [
+      ["Ľuboš Trizna", String(env.MANAGER_LUBOS_PIN || "")],
+      ["Peter Hrabal", String(env.MANAGER_PETER_PIN || "")],
+      ["Jaroslav Pažítka", String(env.MANAGER_JAROSLAV_PIN || "")],
+    ];
+    for (const [name, pin] of managerPins) {
+      if (pin && await constantTimeTextEqual(credential, pin)) return { ok: true, name };
+    }
+    const fallback = String(env.MANAGER_PIN || env.MANAGER_PASSWORD || "");
+    if (fallback && suppliedName && await constantTimeTextEqual(credential, fallback)) return { ok: true, name: suppliedName };
+    return { ok: false, name: "" };
+  }
+  if (role === "operations_manager") {
+    const pin = String(env.OPERATIONS_PIN || env.OPERATIONS_PASSWORD || "");
+    const ok = Boolean(pin) && await constantTimeTextEqual(credential, pin);
+    return { ok, name: ok ? "Vladimír Moravčík" : "" };
+  }
+  const pin = roleSecret(env, role);
+  const ok = Boolean(pin) && await constantTimeTextEqual(credential, pin);
+  return { ok, name: ok ? suppliedName : "" };
+}
+
 function roleLabel(role: StaffRole) {
   if (role === "maintenance") return "Údržba a technológia";
   if (role === "maintenance_manager") return "Vedúci Údržby a technológie";
-  if (role === "operations_manager") return "Prevádzkový manažér";
+  if (role === "operations_manager") return "Prevádzkový riaditeľ";
   if (role === "lifeguard") return "Plavčíci";
   return "Sanita";
 }
@@ -642,16 +795,18 @@ app.post("/api/auth/login", async (c) => {
     await ensureFeatureTables(c.env.DB);
     const body = await c.req.json();
     const role = String(body.role || "") as StaffRole;
-    const name = String(body.name || "").trim();
+    const suppliedName = String(body.name || "").trim();
     const credential = String(body.pin || body.password || "");
     if (!isStaffRole(role)) {
       return c.json({ success: false, error: "Neplatná rola." }, 400);
     }
-    if (!name || !credential) return c.json({ success: false, error: "Vyberte meno a zadajte PIN." }, 400);
+    if (!credential) return c.json({ success: false, error: "Zadajte PIN." }, 400);
+    if (!["maintenance_manager", "operations_manager"].includes(role) && !suppliedName) {
+      return c.json({ success: false, error: "Vyberte meno a zadajte PIN." }, 400);
+    }
 
-    const configuredPassword = roleSecret(c.env, role);
     const sessionSecret = String(c.env.SESSION_SECRET || "");
-    if (!configuredPassword || sessionSecret.length < 32) {
+    if (sessionSecret.length < 32) {
       return c.json({ success: false, error: "Produkčné prihlásenie ešte nie je správne nakonfigurované v Cloudflare Secrets." }, 503);
     }
 
@@ -665,11 +820,12 @@ app.post("/api/auth/login", async (c) => {
       return c.json({ success: false, error: "Príliš veľa neúspešných pokusov. Skúste to o 15 minút." }, 429);
     }
 
-    const passwordOk = await constantTimeTextEqual(credential, configuredPassword);
-    if (!passwordOk) {
+    const resolved = await resolveLoginIdentity(c.env, role, suppliedName, credential);
+    if (!resolved.ok || !resolved.name) {
       await c.env.DB.prepare(`INSERT INTO auth_login_attempts(ip,created_at) VALUES (?,CURRENT_TIMESTAMP)`).bind(ip).run();
       return c.json({ success: false, error: "Nesprávny PIN." }, 401);
     }
+    const name = resolved.name;
 
     await c.env.DB.prepare(`DELETE FROM auth_login_attempts WHERE ip=?`).bind(ip).run();
     await c.env.DB.prepare(`DELETE FROM auth_sessions WHERE expires_at <= CURRENT_TIMESTAMP`).run();
@@ -812,6 +968,8 @@ app.use("/api/*", async (c, next) => {
     path === "/api/push/pending" ||
     path === "/api/photo" ||
     (path === "/api/issues" && method === "POST") ||
+    (path === "/api/purchases" && method === "POST") ||
+    path.startsWith("/api/shopping/") ||
     (path === "/api/issues/duplicates" && method === "POST") ||
     (/^\/api\/issues\/\d+\/duplicate-report$/.test(path) && method === "POST") ||
     (path === "/api/alerts" && method === "GET" && (c.req.query("audience") || "public") === "public" && c.req.query("all") !== "1")
@@ -836,6 +994,11 @@ app.use("/api/*", async (c, next) => {
   else if (path === "/api/messages" && method === "POST") roles = ["maintenance"];
   else if (/^\/api\/messages\/\d+\/(resolve|create-task)$/.test(path)) roles = ["maintenance_manager"];
   else if (/^\/api\/messages\/\d+\/reply$/.test(path)) roles = ["maintenance", "maintenance_manager"];
+  else if (path.startsWith("/api/handover")) roles = ["maintenance_manager", "operations_manager"];
+  else if (path.startsWith("/api/management-tasks")) roles = ["maintenance_manager", "operations_manager"];
+  else if (path.startsWith("/api/reminders")) roles = ["maintenance_manager", "operations_manager"];
+  else if (path === "/api/purchases" && method === "GET") roles = ALL_STAFF_ROLES;
+  else if (/^\/api\/purchases\/\d+\/(approve|reject|in-stock)$/.test(path)) roles = ["operations_manager"];
   else if (path.startsWith("/api/push/")) roles = ALL_STAFF_ROLES;
   else if (path === "/api/pumps" && method === "GET") roles = ["maintenance", "maintenance_manager", "operations_manager"];
   else if (path === "/api/pumps" && method === "POST") roles = ["maintenance", "maintenance_manager"];
@@ -1015,7 +1178,7 @@ app.post("/api/issues/:id/action", async (c) => {
     const destinationRole = isStaffRole(String(issue.destination_role || ""))
       ? String(issue.destination_role) as StaffRole
       : (issue.status === "manager" ? "maintenance_manager" : issue.status === "operations" ? "operations_manager" : "maintenance");
-    const canWork = destinationRole === session.role;
+    const canWork = destinationRole === session.role || session.role === "maintenance_manager";
     if (!canWork && action !== "reopen") {
       return c.json({ success: false, error: `Závada je aktuálne adresovaná: ${roleLabel(destinationRole)}.` }, 403);
     }
@@ -2160,6 +2323,245 @@ app.post("/api/pumps/:id/action", async (c) => {
 });
 
 /* =========================================================
+   v1.7.0 – ODKAZY, ÚLOHY, PRIPOMIENKY A NÁKUPY
+   ========================================================= */
+
+const SHOPPING_COOKIE = "tl_shopping";
+
+function setShoppingCookie(c: any, token: string) {
+  c.header("Set-Cookie", `${SHOPPING_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=43200`);
+}
+
+function clearShoppingCookie(c: any) {
+  c.header("Set-Cookie", `${SHOPPING_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
+}
+
+async function hasShoppingSession(c: any) {
+  await ensureFeatureTables(c.env.DB);
+  const raw = getCookie(c.req.raw, SHOPPING_COOKIE);
+  const secret = String(c.env.SESSION_SECRET || "");
+  if (!raw || !secret) return false;
+  const hash = await hmacHex(secret, raw);
+  const row = await c.env.DB.prepare(`SELECT id FROM shopping_sessions WHERE token_hash=? AND expires_at>CURRENT_TIMESTAMP`).bind(hash).first<any>();
+  return Boolean(row);
+}
+
+async function notifyNamedUser(c: any, roleRaw: string | null | undefined, nameRaw: string | null | undefined, title: string, body: string) {
+  const role = String(roleRaw || "");
+  const name = String(nameRaw || "").trim();
+  if (isStaffRole(role) && name) scheduleNotification(c, [role], title, body, "/", name);
+}
+
+app.get("/api/handover", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session = await getSession(c);
+  if (!session || !["maintenance_manager", "operations_manager"].includes(session.role)) return c.json({ success:false,error:"Bez oprávnenia." },403);
+  const rows = await c.env.DB.prepare(`
+    SELECT n.*,
+      CASE WHEN a.note_id IS NULL THEN 0 ELSE 1 END AS acknowledged,
+      (SELECT COUNT(*) FROM handover_note_comments cc WHERE cc.note_id=n.id) AS comment_count,
+      (SELECT MAX(created_at) FROM handover_note_comments cc WHERE cc.note_id=n.id) AS last_comment_at
+    FROM handover_notes n
+    LEFT JOIN handover_note_ack a ON a.note_id=n.id AND LOWER(a.user_name)=LOWER(?)
+    ORDER BY CASE WHEN n.priority='urgent' THEN 0 ELSE 1 END, n.updated_at DESC, n.id DESC
+  `).bind(session.name).all<any>();
+  return c.json({ success:true, notes:rows.results || [] });
+});
+
+app.post("/api/handover", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session = await getSession(c);
+  if (!session || !["maintenance_manager", "operations_manager"].includes(session.role)) return c.json({ success:false,error:"Bez oprávnenia." },403);
+  const form = await c.req.formData();
+  const value = String(form.get("text") || "").trim();
+  const priority = String(form.get("priority") || "normal") === "urgent" ? "urgent" : "normal";
+  if (!value) return c.json({ success:false,error:"Napíšte odkaz." },400);
+  let photoKey:string|null=null;
+  const photo = collectPhotoFiles(form,1)[0];
+  if (photo) photoKey = await savePhoto(c.env.PHOTOS, photo, "handover");
+  const result = await c.env.DB.prepare(`INSERT INTO handover_notes(author_role,author_name,text,priority,photo_key,created_at,updated_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`).bind(session.role,session.name,value,priority,photoKey).run();
+  const id=Number(result.meta.last_row_id);
+  scheduleNotification(c,["maintenance_manager","operations_manager"], priority === "urgent" ? "🔴 Súrny odkaz medzi vedúcimi" : "💬 Nový odkaz medzi vedúcimi", `${session.name}: ${value.slice(0,120)}`, "/");
+  return c.json({ success:true,id });
+});
+
+app.post("/api/handover/:id/ack", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session=await getSession(c);
+  if (!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  const id=Number(c.req.param("id"));
+  await c.env.DB.prepare(`INSERT INTO handover_note_ack(note_id,user_name,acknowledged_at) VALUES (?,?,CURRENT_TIMESTAMP) ON CONFLICT(note_id,user_name) DO UPDATE SET acknowledged_at=CURRENT_TIMESTAMP`).bind(id,session.name).run();
+  return c.json({success:true});
+});
+
+app.get("/api/handover/:id/comments", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const id=Number(c.req.param("id"));
+  const rows=await c.env.DB.prepare(`SELECT * FROM handover_note_comments WHERE note_id=? ORDER BY id`).bind(id).all<any>();
+  return c.json({success:true,comments:rows.results||[]});
+});
+
+app.post("/api/handover/:id/comments", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session=await getSession(c);
+  if (!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  const id=Number(c.req.param("id"));
+  const form=await c.req.formData();
+  const value=String(form.get("text")||"").trim();
+  if (!value) return c.json({success:false,error:"Napíšte komentár."},400);
+  let photoKey:string|null=null;
+  const photo=collectPhotoFiles(form,1)[0];
+  if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"handover/comments");
+  await c.env.DB.prepare(`INSERT INTO handover_note_comments(note_id,author_role,author_name,text,photo_key,created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,value,photoKey).run();
+  await c.env.DB.prepare(`UPDATE handover_notes SET updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+  // Nová reakcia znovu aktivuje odkaz všetkým, ktorí si ho už odklikli.
+  await c.env.DB.prepare(`DELETE FROM handover_note_ack WHERE note_id=?`).bind(id).run();
+  scheduleNotification(c,["maintenance_manager","operations_manager"],"💬 Nová reakcia k odkazu",`${session.name}: ${value.slice(0,120)}`,"/");
+  return c.json({success:true});
+});
+
+app.get("/api/management-tasks", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const rows=await c.env.DB.prepare(`SELECT *, (SELECT COUNT(*) FROM management_task_comments cc WHERE cc.task_id=t.id) AS comment_count FROM management_tasks t ORDER BY CASE WHEN priority='urgent' THEN 0 ELSE 1 END, CASE WHEN status='closed' THEN 1 ELSE 0 END, updated_at DESC`).all<any>();
+  return c.json({success:true,tasks:rows.results||[]});
+});
+
+app.post("/api/management-tasks", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session=await getSession(c);
+  if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  const form=await c.req.formData();
+  const title=String(form.get("title")||"").trim();
+  const description=String(form.get("description")||"").trim();
+  const priority=String(form.get("priority")||"normal")==="urgent"?"urgent":"normal";
+  const owner=String(form.get("owner_name")||"").trim()||null;
+  if(!title) return c.json({success:false,error:"Zadajte názov úlohy."},400);
+  let photoKey:string|null=null; const photo=collectPhotoFiles(form,1)[0]; if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"management-tasks");
+  const result=await c.env.DB.prepare(`INSERT INTO management_tasks(title,description,status,priority,owner_name,created_by_role,created_by_name,photo_key,created_at,updated_at) VALUES (?,?,?, ?,?,?,?, ?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`).bind(title,description,owner?"progress":"new",priority,owner,session.role,session.name,photoKey).run();
+  scheduleNotification(c,["maintenance_manager","operations_manager"], priority==="urgent"?"🔴 Nová súrna úloha":"✅ Nová úloha",title,"/");
+  return c.json({success:true,id:Number(result.meta.last_row_id)});
+});
+
+app.get("/api/management-tasks/:id/comments", async (c) => {
+  const id=Number(c.req.param("id"));
+  const rows=await c.env.DB.prepare(`SELECT * FROM management_task_comments WHERE task_id=? ORDER BY id`).bind(id).all<any>();
+  return c.json({success:true,comments:rows.results||[]});
+});
+
+app.post("/api/management-tasks/:id/action", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session=await getSession(c);
+  if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  const id=Number(c.req.param("id")); const form=await c.req.formData();
+  const action=String(form.get("action")||""); const message=String(form.get("message")||"").trim(); const status=String(form.get("status")||"").trim();
+  let photoKey:string|null=null; const photo=collectPhotoFiles(form,1)[0]; if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"management-tasks/comments");
+  if(action==="take") await c.env.DB.prepare(`UPDATE management_tasks SET owner_name=?,status='progress',updated_at=CURRENT_TIMESTAMP,closed_at=NULL WHERE id=?`).bind(session.name,id).run();
+  else if(action==="assign") { const owner=String(form.get("owner_name")||"").trim(); await c.env.DB.prepare(`UPDATE management_tasks SET owner_name=?,status=CASE WHEN ?='' THEN 'new' ELSE 'progress' END,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(owner||null,owner,id).run(); }
+  else if(action==="status") { const allowed=["new","progress","quote","decision","realization","closed"]; if(!allowed.includes(status)) return c.json({success:false,error:"Neplatný stav."},400); await c.env.DB.prepare(`UPDATE management_tasks SET status=?,updated_at=CURRENT_TIMESTAMP,closed_at=CASE WHEN ?='closed' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?`).bind(status,status,id).run(); }
+  else if(action==="reopen") await c.env.DB.prepare(`UPDATE management_tasks SET status='progress',closed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+  else if(action!=="comment") return c.json({success:false,error:"Neplatná akcia."},400);
+  if(message || photoKey) await c.env.DB.prepare(`INSERT INTO management_task_comments(task_id,author_role,author_name,text,photo_key,created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,message||"Aktualizácia úlohy",photoKey).run();
+  scheduleNotification(c,["maintenance_manager","operations_manager"],"📝 Aktualizácia úlohy",message||"Úloha bola aktualizovaná.","/");
+  return c.json({success:true});
+});
+
+app.get("/api/reminders", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const scope=String(c.req.query("scope")||"today");
+  const formatter=new Intl.DateTimeFormat("en-CA",{timeZone:"Europe/Bratislava",year:"numeric",month:"2-digit",day:"2-digit"});
+  const today=formatter.format(new Date());
+  const sql=scope==="all"?`SELECT * FROM reminders WHERE due_date>=? ORDER BY due_date,due_time,id`:`SELECT * FROM reminders WHERE due_date=? ORDER BY COALESCE(due_time,'23:59'),id`;
+  const rows=await c.env.DB.prepare(sql).bind(today).all<any>();
+  return c.json({success:true,reminders:rows.results||[],today});
+});
+
+app.post("/api/reminders", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session=await getSession(c); if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  const body=await c.req.json(); const title=String(body.title||"").trim(); const dueDate=String(body.due_date||"").trim(); const dueTime=String(body.due_time||"").trim()||null; const sourceNote=Number(body.source_note_id||0)||null;
+  if(!title || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return c.json({success:false,error:"Doplňte názov a dátum."},400);
+  const r=await c.env.DB.prepare(`INSERT INTO reminders(title,due_date,due_time,source_note_id,created_by_role,created_by_name,created_at) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(title,dueDate,dueTime,sourceNote,session.role,session.name).run();
+  return c.json({success:true,id:Number(r.meta.last_row_id)});
+});
+
+app.delete("/api/reminders/:id", async (c) => {
+  const session=await getSession(c); if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  await c.env.DB.prepare(`DELETE FROM reminders WHERE id=?`).bind(Number(c.req.param("id"))).run(); return c.json({success:true});
+});
+
+app.post("/api/purchases", async (c) => {
+  await ensureFeatureTables(c.env.DB);
+  const session=await getSession(c);
+  const form=await c.req.formData();
+  const requesterName=session?.name || String(form.get("requester_name")||"").trim();
+  const requesterRole=session?.role || "public";
+  const item=String(form.get("item_name")||"").trim();
+  if(!requesterName) return c.json({success:false,error:"Meno žiadateľa je povinné."},400);
+  if(!item) return c.json({success:false,error:"Napíšte, čo treba kúpiť."},400);
+  const quantity=String(form.get("quantity")||"").trim(); const price=String(form.get("price")||"").trim(); const priceKind=String(form.get("price_kind")||"").trim(); const note=String(form.get("note")||"").trim(); const priority=String(form.get("priority")||"normal")==="urgent"?"urgent":"normal";
+  let photoKey:string|null=null; const photo=collectPhotoFiles(form,1)[0]; if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"purchases");
+  const r=await c.env.DB.prepare(`INSERT INTO purchase_requests(requester_name,requester_role,item_name,quantity,price,price_kind,note,priority,photo_key,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'pending',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`).bind(requesterName,requesterRole,item,quantity,price,priceKind,note,priority,photoKey).run();
+  const id=Number(r.meta.last_row_id); await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'created',?,?,?,CURRENT_TIMESTAMP)`).bind(id,requesterRole,requesterName,item).run();
+  scheduleNotification(c,["operations_manager"], priority==="urgent"?"🛒 Súrna požiadavka na nákup":"🛒 Nová požiadavka na nákup",`${requesterName}: ${item}`,"/");
+  return c.json({success:true,id});
+});
+
+app.get("/api/purchases", async (c) => {
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session) return c.json({success:false,error:"Prihlásenie vypršalo."},401);
+  const scope=String(c.req.query("scope")||"mine");
+  let rows;
+  if(scope==="all" && session.role==="operations_manager") rows=await c.env.DB.prepare(`SELECT * FROM purchase_requests ORDER BY CASE WHEN priority='urgent' THEN 0 ELSE 1 END, created_at DESC`).all<any>();
+  else rows=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE LOWER(requester_name)=LOWER(?) ORDER BY created_at DESC`).bind(session.name).all<any>();
+  return c.json({success:true,purchases:rows.results||[]});
+});
+
+app.post("/api/purchases/:id/approve", async (c) => {
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id"));
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  await c.env.DB.prepare(`UPDATE purchase_requests SET status='approved',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run();
+  await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'approved',?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,'Schválené').run();
+  await notifyNamedUser(c,row.requester_role,row.requester_name,"✅ Nákup schválený",`${row.item_name} bol schválený na nákup.`); return c.json({success:true});
+});
+
+app.post("/api/purchases/:id/reject", async (c) => {
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const body=await c.req.json().catch(()=>({})); const reason=String(body.reason||"").trim();
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  await c.env.DB.prepare(`UPDATE purchase_requests SET status='rejected',rejection_reason=?,approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(reason,session.name,id).run();
+  await notifyNamedUser(c,row.requester_role,row.requester_name,"❌ Nákup zamietnutý",`${row.item_name}${reason?`: ${reason}`:"."}`); return c.json({success:true});
+});
+
+app.post("/api/purchases/:id/in-stock", async (c) => {
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  await c.env.DB.prepare(`UPDATE purchase_requests SET status='in_stock',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"📦 Položka je na sklade",`${row.item_name} je dostupný na sklade.`); return c.json({success:true});
+});
+
+app.post("/api/shopping/login", async (c) => {
+  await ensureFeatureTables(c.env.DB); const body=await c.req.json(); const pin=String(body.pin||""); const configured=String(c.env.SHOPPING_PIN||""); if(!configured) return c.json({success:false,error:"PIN nákupného zoznamu nie je nastavený."},503); if(!(await constantTimeTextEqual(pin,configured))) return c.json({success:false,error:"Nesprávny PIN."},401);
+  const secret=String(c.env.SESSION_SECRET||""); const token=base64UrlEncodeBytes(crypto.getRandomValues(new Uint8Array(32))); const hash=await hmacHex(secret,token); const expires=sqlDateTime(new Date(Date.now()+12*60*60*1000)); await c.env.DB.prepare(`INSERT INTO shopping_sessions(token_hash,created_at,expires_at) VALUES (?,CURRENT_TIMESTAMP,?)`).bind(hash,expires).run(); setShoppingCookie(c,token); return c.json({success:true});
+});
+
+app.post("/api/shopping/logout", async (c) => { const raw=getCookie(c.req.raw,SHOPPING_COOKIE); if(raw && c.env.SESSION_SECRET){ const hash=await hmacHex(String(c.env.SESSION_SECRET),raw); await c.env.DB.prepare(`DELETE FROM shopping_sessions WHERE token_hash=?`).bind(hash).run(); } clearShoppingCookie(c); return c.json({success:true}); });
+
+app.get("/api/shopping/list", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); await ensureFeatureTables(c.env.DB); const rows=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE status='approved' ORDER BY CASE WHEN priority='urgent' THEN 0 ELSE 1 END, approved_at,id`).all<any>(); const history=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE status IN ('purchased','in_stock') ORDER BY COALESCE(purchased_at,updated_at) DESC LIMIT 100`).all<any>(); return c.json({success:true,purchases:rows.results||[],history:history.results||[]}); });
+
+app.post("/api/shopping/:id/purchased", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=? AND status='approved'`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Položka nie je v nákupnom zozname."},404); await c.env.DB.prepare(`UPDATE purchase_requests SET status='purchased',purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"🛍️ Nákup vybavený",`${row.item_name} bol nakúpený.`); return c.json({success:true}); });
+
+app.get("/api/worker-stats", async (c) => {
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
+  const rows=await c.env.DB.prepare(`
+    SELECT e.actor_name,
+      SUM(CASE WHEN e.event_type IN ('taken','taken_over') THEN 1 ELSE 0 END) AS taken_count,
+      SUM(CASE WHEN e.event_type='resolved' THEN 1 ELSE 0 END) AS resolved_count,
+      ROUND(AVG(CASE WHEN e.event_type='resolved' THEN (julianday(e.created_at)-julianday(i.created_at))*24.0 END),1) AS avg_hours
+    FROM issue_events e JOIN issues i ON i.id=e.issue_id
+    WHERE e.actor_name IS NOT NULL AND TRIM(e.actor_name)<>''
+    GROUP BY e.actor_name ORDER BY resolved_count DESC,taken_count DESC,e.actor_name
+  `).all<any>();
+  return c.json({success:true,workers:rows.results||[]});
+});
+
+
+/* =========================================================
    DIAGNOSTIKA / API 404
    ========================================================= */
 
@@ -2168,30 +2570,70 @@ app.get("/api/features-health", async (c) => {
     await ensureFeatureTables(c.env.DB);
     const securityReady = Boolean(
       roleSecret(c.env, "maintenance") &&
-      roleSecret(c.env, "maintenance_manager") &&
+      c.env.MANAGER_LUBOS_PIN && c.env.MANAGER_PETER_PIN && c.env.MANAGER_JAROSLAV_PIN &&
       roleSecret(c.env, "operations_manager") &&
       roleSecret(c.env, "lifeguard") &&
       roleSecret(c.env, "sanitation") &&
+      c.env.SHOPPING_PIN &&
       c.env.SESSION_SECRET &&
       String(c.env.SESSION_SECRET).length >= 32
     );
     return c.json({
       success: true,
-      version: "1.6.0",
+      version: "1.7.0",
       alerts: true,
       messages: true,
       offline_drafts: true,
       multi_department: true,
       multi_photo: true,
       pumps: true,
+      handover_notes: true,
+      management_tasks: true,
+      reminders: true,
+      purchases: true,
+      individual_manager_pin: true,
       pin_login: true,
       push: true,
       production_auth_ready: securityReady,
     });
   } catch (error) {
     console.error(error);
-    return c.json({ success: false, version: "1.6.0" }, 500);
+    return c.json({ success: false, version: "1.7.0" }, 500);
   }
 });
 
-export default app;
+async function runReminderSchedule(env: Bindings) {
+  await ensureFeatureTables(env.DB);
+  const now = new Date();
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Bratislava", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", hour12:false }).formatToParts(now);
+  const get = (type:string) => parts.find((p:any)=>p.type===type)?.value || "";
+  const today = `${get("year")}-${get("month")}-${get("day")}`;
+  const hour = Number(get("hour"));
+  const localDate = new Date(`${today}T12:00:00Z`);
+  const tomorrowDate = new Date(localDate.getTime()+86400000);
+  const tomorrow = `${tomorrowDate.getUTCFullYear()}-${String(tomorrowDate.getUTCMonth()+1).padStart(2,"0")}-${String(tomorrowDate.getUTCDate()).padStart(2,"0")}`;
+  const fakeC:any = { env };
+  if (hour === 7) {
+    const rows = await env.DB.prepare(`SELECT * FROM reminders WHERE due_date=? AND morning_sent_at IS NULL ORDER BY id`).bind(today).all<any>();
+    for (const row of rows.results || []) {
+      await notifySubscriptions(fakeC,["maintenance_manager","operations_manager"],"🔔 Dnešná pripomienka",`${row.due_time ? row.due_time+" • " : ""}${row.title}`,"/");
+      await env.DB.prepare(`UPDATE reminders SET morning_sent_at=CURRENT_TIMESTAMP WHERE id=?`).bind(row.id).run();
+    }
+  }
+  if (hour === 19) {
+    const rows = await env.DB.prepare(`SELECT * FROM reminders WHERE due_date=? AND evening_sent_at IS NULL ORDER BY id`).bind(tomorrow).all<any>();
+    for (const row of rows.results || []) {
+      await notifySubscriptions(fakeC,["maintenance_manager","operations_manager"],"📅 Zajtra vás čaká",`${row.due_time ? row.due_time+" • " : ""}${row.title}`,"/");
+      await env.DB.prepare(`UPDATE reminders SET evening_sent_at=CURRENT_TIMESTAMP WHERE id=?`).bind(row.id).run();
+    }
+  }
+}
+
+export default {
+  fetch(request: Request, env: Bindings, ctx: ExecutionContext) {
+    return app.fetch(request, env, ctx);
+  },
+  async scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext) {
+    ctx.waitUntil(runReminderSchedule(env));
+  },
+};
