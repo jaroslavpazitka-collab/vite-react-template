@@ -3075,3 +3075,387 @@ img {
   .portal-secondary-grid { grid-template-columns:1fr; }
   .issue-action-grid-new, .pump-action-grid { grid-template-columns:1fr; }
 }
+
+/* =========================================================
+   v1.7.0 – ODKAZY / ÚLOHY / NÁKUPY / PRIPOMIENKY
+   ========================================================= */
+.manager-top-grid {
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:14px;
+  margin:16px 0 18px;
+}
+.manager-action-card {
+  position:relative;
+  min-height:116px;
+  border:0;
+  border-radius:22px;
+  padding:18px;
+  color:#fff;
+  display:flex;
+  gap:14px;
+  align-items:center;
+  text-align:left;
+  box-shadow:0 10px 22px rgba(5,38,76,.14);
+  cursor:pointer;
+}
+.manager-action-card > span {font-size:34px;flex:0 0 auto;}
+.manager-action-card strong {display:block;font-size:20px;line-height:1.05;}
+.manager-action-card small {display:block;margin-top:7px;color:rgba(255,255,255,.9);font-size:13px;}
+.manager-action-card em {
+  position:absolute;top:10px;right:10px;background:#f04438;color:#fff;border-radius:999px;
+  padding:4px 9px;font-style:normal;font-weight:800;font-size:12px;border:2px solid rgba(255,255,255,.75);
+}
+.card-report{background:linear-gradient(135deg,#ef4444,#c81e1e)}
+.card-handover{background:linear-gradient(135deg,#1687da,#0759a5)}
+.card-tasks{background:linear-gradient(135deg,#1faa59,#08763a)}
+.card-reminders{background:linear-gradient(135deg,#f59e0b,#d96b00)}
+.card-purchase{background:linear-gradient(135deg,#ff8a00,#e55000)}
+
+.operations-list-card {
+  background:#f8fbff;border:1px solid #dbe8f5;border-radius:22px;padding:14px 16px;margin:12px 0 18px;
+  box-shadow:0 8px 20px rgba(25,75,125,.08);
+}
+.operations-list-card h3{margin:0 0 8px;color:#16395e;font-size:20px}
+.operations-list-card button {
+  width:100%;display:grid;grid-template-columns:38px 1fr auto 22px;align-items:center;gap:10px;
+  border:0;border-top:1px solid #dbe6f0;background:transparent;padding:14px 4px;text-align:left;color:#142f4b;
+}
+.operations-list-card button:first-of-type{border-top:0}
+.operations-list-card button>span{font-size:24px;text-align:center}
+.operations-list-card button strong{font-size:16px}
+.operations-list-card button em{font-style:normal;background:#ddecff;color:#0c4f91;border-radius:999px;padding:4px 11px;font-weight:800}
+.operations-list-card button b{font-size:24px;color:#52718d}
+
+.manager-bottom-grid {
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px;
+}
+.manager-bottom-grid button {
+  border:1px solid #d9e4ee;background:#fff;border-radius:16px;padding:14px 10px;display:flex;gap:9px;align-items:center;
+  color:#183957;text-align:left;box-shadow:0 5px 14px rgba(15,52,90,.06);
+}
+.manager-bottom-grid button span{font-size:21px}.manager-bottom-grid button strong{font-size:13px}
+
+.feature-compose-card {
+  background:#f6faff;border:1px solid #d9e7f4;border-radius:18px;padding:14px;margin:14px 0;
+}
+.feature-compose-card input,.feature-compose-card textarea,.feature-compose-card select,
+.purchase-form input,.purchase-form textarea,.purchase-form select,.worker-filter-grid select {
+  width:100%;box-sizing:border-box;border:1px solid #cddbe8;border-radius:12px;background:#fff;padding:11px 12px;
+  font:inherit;color:#193752;outline:none;
+}
+.feature-compose-card textarea:focus,.feature-compose-card input:focus,.purchase-form input:focus,.purchase-form textarea:focus{border-color:#1987d4;box-shadow:0 0 0 3px rgba(25,135,212,.1)}
+.voice-field-row{display:grid;grid-template-columns:1fr 48px;gap:8px;align-items:stretch}
+.voice-button{border:0;border-radius:12px;background:#e8f4ff;color:#0759a5;font-size:21px;cursor:pointer;min-height:44px}
+.inline-fields{display:flex;gap:9px;align-items:center;margin-top:10px;flex-wrap:wrap}.inline-fields>*{flex:1 1 130px}
+.file-mini{display:flex!important;align-items:center;justify-content:center;gap:6px;border:1px dashed #9eb8cf;border-radius:12px;padding:10px;background:#fff;color:#28516e;font-weight:700;cursor:pointer}
+.file-mini input{display:none}
+.section-caption{margin:18px 4px 8px;color:#183957}
+.compact-note-list{display:flex;flex-direction:column;gap:8px}
+.compact-note-row{display:grid;grid-template-columns:1fr 52px;gap:8px;align-items:stretch;background:#fff;border:1px solid #dce7f0;border-radius:15px;overflow:hidden}
+.compact-note-row.urgent{border-color:#f0a19c;background:#fff8f7}
+.note-main{border:0;background:transparent;display:grid;grid-template-columns:28px 1fr;gap:8px;padding:13px;text-align:left;color:#17344e}
+.note-main strong{display:block;font-size:15px}.note-main small{display:block;color:#6b7f91;margin-top:5px}.note-bullet{font-size:23px;color:#1b70b8}
+.note-ack{border:0;background:#eef8f0;color:#16803e;font-size:24px;font-weight:900}
+.history-details{margin-top:16px;border-top:1px solid #dbe6ef;padding-top:12px}.history-details summary{cursor:pointer;font-weight:800;color:#526d84}
+.compact-history-row{width:100%;border:0;border-bottom:1px solid #e3ebf2;background:#fff;text-align:left;padding:11px;color:#203c55}.compact-history-row small{display:block;color:#7a8d9e;margin-top:4px}
+.detail-text-card{background:#fff;border:1px solid #dce7f0;border-radius:16px;padding:16px;margin:14px 0}.detail-text-card p{white-space:pre-wrap;font-size:16px}.detail-text-card small{display:block;color:#728697}.detail-text-card img,.thread-item img{max-width:180px;border-radius:12px;margin-top:10px}
+.thread-list{display:flex;flex-direction:column;gap:9px}.thread-item{background:#f8fbfe;border:1px solid #dce8f2;border-radius:15px;padding:12px}.thread-item strong{color:#123b61}.thread-item small{float:right;color:#8092a2}.thread-item p{clear:both;margin:8px 0 0;white-space:pre-wrap}
+.task-action-strip{display:flex;gap:7px;flex-wrap:wrap;margin:12px 0}.task-action-strip button{border:1px solid #cfe0ee;background:#fff;border-radius:999px;padding:8px 11px;color:#24506e;font-weight:700}.urgent-row{border-left:4px solid #ef3f35!important}
+.reminder-list{display:flex;flex-direction:column;gap:9px}.reminder-row{display:flex;gap:12px;align-items:center;background:#fff7e9;border:1px solid #f3d5a6;border-radius:15px;padding:13px}.reminder-row>span{font-size:24px}.reminder-row strong{display:block}.reminder-row small{color:#8d6c37}
+.purchase-form{display:flex;flex-direction:column;gap:12px;padding:16px}.purchase-form label{display:flex;flex-direction:column;gap:6px;font-weight:700;color:#294a65}.two-col-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.my-purchase-section,.my-combined-section{margin:16px;border-top:1px solid #dbe6ee;padding-top:12px}.my-purchase-section h3,.my-combined-section h3{margin:0 0 10px;color:#183957}
+.purchase-status-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid #e4ebf1;padding:10px 2px}.purchase-status-row small{display:block;color:#7b8d9d;margin-top:3px}.purchase-status{font-size:11px;text-transform:uppercase;border-radius:999px;padding:5px 9px;background:#edf2f7;color:#40576a;font-weight:800}.purchase-status.approved{background:#e9f8ed;color:#17713a}.purchase-status.rejected{background:#ffeded;color:#a52a24}.purchase-status.purchased,.purchase-status.in_stock{background:#e6f2ff;color:#155f9a}.purchase-status.pending{background:#fff3d9;color:#8a5a00}
+.purchase-approval-list{display:flex;flex-direction:column;gap:7px;padding:12px}.purchase-approval-row{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:center;border:1px solid #dce7f0;border-radius:15px;padding:11px;background:#fff}.purchase-approval-row.urgent{border-color:#ef9a95;background:#fff7f6}.purchase-dot{font-size:22px}.purchase-copy strong{display:block}.purchase-copy small{display:block;color:#708598;margin-top:3px}.purchase-copy p{margin:6px 0 0;color:#486176}.purchase-actions{display:flex;gap:5px}.purchase-actions button{border:0;border-radius:9px;padding:8px 9px;background:#eef4f8;font-weight:900}
+.shopping-checklist{display:flex;flex-direction:column;gap:4px;padding:12px}.shopping-row{border:0;border-bottom:1px solid #e0e8ef;background:#fff;display:grid;grid-template-columns:36px 1fr;gap:8px;text-align:left;padding:14px;color:#193a56}.shopping-row>span{font-size:26px;color:#1e78ba}.shopping-row strong{display:block;font-size:16px}.shopping-row small{display:block;color:#768b9d;margin-top:3px}.shopping-row.urgent{background:#fff5f4}
+.voice-report-banner{margin:14px 16px 0;padding:12px;border-radius:16px;background:linear-gradient(135deg,#eef8ff,#e9f4ff);border:1px solid #cce4f8;display:flex;gap:10px;align-items:center}.voice-report-banner button{border:0;border-radius:12px;background:#086eb7;color:#fff;padding:11px 14px;font-weight:800;white-space:nowrap}.voice-report-banner span{font-size:12px;color:#4c6b82}
+.worker-filter-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.worker-filter-grid label{font-size:12px;color:#62788a;font-weight:700}.worker-filter-grid select{margin-top:5px;padding:9px}
+.worker-stats-table{display:flex;flex-direction:column}.worker-stats-head,.worker-stats-row{display:grid;grid-template-columns:2fr .7fr .7fr 1fr;gap:8px;align-items:center;padding:9px;border-bottom:1px solid #e0e8ef}.worker-stats-head{font-size:11px;text-transform:uppercase;color:#6e8295;font-weight:800}.worker-stats-row span{text-align:center}.worker-stats-row strong{font-size:13px}
+.home-purchase-tile{background:linear-gradient(135deg,#ff9c16,#ee6a00)!important}
+.tile-purchase{background:linear-gradient(135deg,#f59e0b,#d96b00)!important;color:#fff!important}
+
+@media (max-width:640px){
+  .manager-top-grid{grid-template-columns:1fr 1fr;gap:9px}.manager-action-card{min-height:100px;padding:13px;gap:9px;border-radius:17px}.manager-action-card>span{font-size:27px}.manager-action-card strong{font-size:16px}.manager-action-card small{font-size:11px}.manager-bottom-grid{grid-template-columns:1fr 1fr}.two-col-fields,.worker-filter-grid{grid-template-columns:1fr}.purchase-approval-row{grid-template-columns:24px 1fr}.purchase-actions{grid-column:2;justify-content:flex-start}.voice-report-banner{flex-direction:column;align-items:stretch}
+}
+.reminder-button{width:100%;border:1px solid #f3d5a6;text-align:left;cursor:pointer}
+.shopping-history-list{display:flex;flex-direction:column;gap:4px;margin-top:9px}.shopping-history-row{display:grid;grid-template-columns:32px 1fr;gap:8px;padding:10px;border-bottom:1px solid #e5ebf0;color:#496276}.shopping-history-row>span{color:#16803e;font-weight:900;font-size:20px}.shopping-history-row strong{display:block;color:#25455f}.shopping-history-row small{display:block;color:#7d8f9e;margin-top:3px}
+.task-assign-row{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0}.task-assign-row select{border:1px solid #ccdce8;border-radius:12px;padding:10px;background:#fff;color:#21415b}.task-assign-row button{border:0;border-radius:12px;background:#0b71b8;color:#fff;padding:10px 14px;font-weight:800}
+.card-overview{background:linear-gradient(135deg,#20a85a,#08763a)}
+
+/* =========================================================
+   v1.7.1 – VISUAL CONSISTENCY PASS
+   Modernizes all legacy dashboard/detail subpages without
+   changing their business logic or existing functionality.
+   ========================================================= */
+.legacy-modernized-shell {
+  min-height: 100vh;
+  padding: 0;
+  background:
+    radial-gradient(circle at 50% -20%, rgba(20, 117, 191, .22), transparent 38%),
+    linear-gradient(180deg, #061b2c 0%, #0a2b43 34%, #eef7fc 34%, #f7fbfe 100%);
+}
+
+.legacy-modernized-shell > .app-card,
+.legacy-modernized-shell .dashboard-card {
+  width: min(100%, 1080px);
+  max-width: 1080px;
+  margin: 0 auto;
+  border-radius: 0 0 30px 30px;
+  border: 0;
+  box-shadow: 0 18px 50px rgba(4, 37, 61, .18);
+  background: linear-gradient(180deg, rgba(255,255,255,.98), #f5faff 72%, #eef7fc 100%);
+  overflow: hidden;
+}
+
+.legacy-modernized-shell .dashboard-header {
+  position: relative;
+  min-height: 118px;
+  padding: 24px 26px 18px;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  background:
+    linear-gradient(110deg, rgba(4,35,59,.96), rgba(5,83,139,.9)),
+    var(--hero-image, none);
+  color: #fff;
+  border: 0;
+}
+
+.legacy-modernized-shell .dashboard-logo {
+  max-width: 210px;
+  max-height: 70px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+
+.legacy-modernized-shell .back-button,
+.legacy-modernized-shell .logout-button,
+.legacy-modernized-shell .notification-bell {
+  border: 1px solid rgba(255,255,255,.22);
+  background: rgba(255,255,255,.12);
+  color: #fff;
+  border-radius: 14px;
+  min-height: 44px;
+  padding: 10px 14px;
+  font-weight: 800;
+  backdrop-filter: blur(8px);
+}
+
+.legacy-modernized-shell .back-button:hover,
+.legacy-modernized-shell .logout-button:hover,
+.legacy-modernized-shell .notification-bell:hover {
+  background: rgba(255,255,255,.2);
+}
+
+.legacy-modernized-shell .manager-header-badge,
+.legacy-modernized-shell .operations-role-badge {
+  width: fit-content;
+  margin: 18px 22px 4px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 0;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .08em;
+  background: linear-gradient(135deg, #ff8a00, #f05a00);
+  color: #fff;
+  box-shadow: 0 8px 20px rgba(240,90,0,.22);
+}
+
+.legacy-modernized-shell .welcome-block,
+.legacy-modernized-shell .dashboard-title-row,
+.legacy-modernized-shell .history-header,
+.legacy-modernized-shell .history-subtitle,
+.legacy-modernized-shell .feature-quick-grid,
+.legacy-modernized-shell .operations-kpi-grid,
+.legacy-modernized-shell .operations-stats-panel,
+.legacy-modernized-shell .issue-list,
+.legacy-modernized-shell .history-list,
+.legacy-modernized-shell .filter-row,
+.legacy-modernized-shell .operations-filter-panel,
+.legacy-modernized-shell .manager-filter-panel,
+.legacy-modernized-shell .maintenance-filter-panel {
+  margin-left: 22px;
+  margin-right: 22px;
+}
+
+.legacy-modernized-shell .welcome-block {
+  margin-top: 14px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #06375c, #0873bb);
+  color: #fff;
+  border: 0;
+  box-shadow: 0 12px 28px rgba(4,68,111,.2);
+}
+
+.legacy-modernized-shell .dashboard-title-row,
+.legacy-modernized-shell .history-header {
+  margin-top: 22px;
+  align-items: center;
+}
+
+.legacy-modernized-shell .dashboard-title-row h1,
+.legacy-modernized-shell .history-header h1 {
+  margin: 2px 0 0;
+  color: #0b2a43;
+  font-size: clamp(28px, 4vw, 40px);
+  letter-spacing: -.025em;
+}
+
+.legacy-modernized-shell .section-label {
+  color: #f26b00;
+  font-weight: 900;
+  letter-spacing: .12em;
+  font-size: 11px;
+}
+
+.legacy-modernized-shell .history-count,
+.legacy-modernized-shell .operations-count-badge {
+  min-width: 46px;
+  height: 46px;
+  padding: 0 12px;
+  border-radius: 16px;
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, #0a78c9, #075695);
+  box-shadow: 0 8px 18px rgba(7,86,149,.2);
+}
+
+.legacy-modernized-shell .operations-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.legacy-modernized-shell .operations-kpi-card,
+.legacy-modernized-shell .manager-stat-card {
+  border: 1px solid #d9e8f3;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #fff, #f5faff);
+  box-shadow: 0 8px 22px rgba(9,58,91,.08);
+  padding: 16px;
+}
+
+.legacy-modernized-shell .operations-kpi-card strong,
+.legacy-modernized-shell .manager-stat-card strong {
+  color: #0b5e9e;
+  font-size: 28px;
+}
+
+.legacy-modernized-shell .operations-stats-panel,
+.legacy-modernized-shell .history-card,
+.legacy-modernized-shell .issue-card-new,
+.legacy-modernized-shell .empty-box,
+.legacy-modernized-shell .communication-empty {
+  border: 1px solid #dceaf4;
+  border-radius: 20px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(9,58,91,.07);
+}
+
+.legacy-modernized-shell .operations-stats-panel {
+  margin-top: 16px;
+  padding: 18px;
+}
+
+.legacy-modernized-shell .operations-panel-title {
+  color: #0b2a43;
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: .04em;
+}
+
+.legacy-modernized-shell .history-card,
+.legacy-modernized-shell .issue-card-new {
+  margin-bottom: 10px;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+
+.legacy-modernized-shell .history-card:hover,
+.legacy-modernized-shell .issue-card-new:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px rgba(9,58,91,.12);
+}
+
+.legacy-modernized-shell .maintenance-bottom-menu,
+.legacy-modernized-shell .operations-bottom-menu {
+  position: sticky;
+  bottom: 10px;
+  margin: 22px;
+  padding: 8px;
+  border-radius: 20px;
+  border: 1px solid rgba(14,79,122,.12);
+  background: rgba(255,255,255,.92);
+  box-shadow: 0 12px 34px rgba(4,37,61,.15);
+  backdrop-filter: blur(14px);
+}
+
+.legacy-modernized-shell .maintenance-bottom-menu button,
+.legacy-modernized-shell .operations-bottom-menu button {
+  border-radius: 14px;
+}
+
+.legacy-modernized-shell .bottom-menu-active {
+  background: linear-gradient(135deg, #086bb1, #064f87) !important;
+  color: #fff !important;
+}
+
+.legacy-modernized-shell .worker-stats-table,
+.legacy-modernized-shell .employee-rating-table {
+  overflow: hidden;
+  border-radius: 16px;
+  border: 1px solid #e0edf5;
+}
+
+.legacy-modernized-shell .worker-stats-head {
+  background: #eaf5fc;
+  color: #0b416b;
+  font-weight: 900;
+}
+
+.legacy-modernized-shell .worker-stats-row,
+.legacy-modernized-shell .employee-rating-row {
+  background: #fff;
+  border-bottom: 1px solid #edf3f7;
+}
+
+.legacy-modernized-shell input,
+.legacy-modernized-shell select,
+.legacy-modernized-shell textarea {
+  border-radius: 14px;
+  border-color: #cddfeb;
+  background: #fff;
+}
+
+@media (max-width: 720px) {
+  .legacy-modernized-shell .dashboard-header {
+    grid-template-columns: auto 1fr auto;
+    min-height: 94px;
+    padding: 18px 14px 14px;
+  }
+  .legacy-modernized-shell .dashboard-logo {
+    max-width: 150px;
+  }
+  .legacy-modernized-shell .operations-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .legacy-modernized-shell .welcome-block,
+  .legacy-modernized-shell .dashboard-title-row,
+  .legacy-modernized-shell .history-header,
+  .legacy-modernized-shell .history-subtitle,
+  .legacy-modernized-shell .feature-quick-grid,
+  .legacy-modernized-shell .operations-kpi-grid,
+  .legacy-modernized-shell .operations-stats-panel,
+  .legacy-modernized-shell .issue-list,
+  .legacy-modernized-shell .history-list,
+  .legacy-modernized-shell .filter-row,
+  .legacy-modernized-shell .operations-filter-panel,
+  .legacy-modernized-shell .manager-filter-panel,
+  .legacy-modernized-shell .maintenance-filter-panel {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
+}
