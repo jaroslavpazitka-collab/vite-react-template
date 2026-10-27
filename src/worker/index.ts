@@ -206,7 +206,7 @@ async function ensureFeatureTables(db: D1Database) {
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (pump_id) REFERENCES pump_records(id)
       )
-    `),,
+    `),
     db.prepare(`
       CREATE TABLE IF NOT EXISTS handover_notes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -525,7 +525,7 @@ function isStaffRole(value: string): value is StaffRole {
 }
 
 async function getSetting(db: D1Database, key: string) {
-  const row = await db.prepare(`SELECT setting_value FROM app_settings WHERE setting_key=?`).bind(key).first<any>();
+  const row = await db.prepare(`SELECT setting_value FROM app_settings WHERE setting_key=?`).bind(key).first();
   return row ? String(row.setting_value) : "";
 }
 
@@ -748,7 +748,7 @@ async function notifyIssueReporter(c: any, issue: any, title: string, body: stri
 }
 
 async function syncPumpFromClosedIssue(db: D1Database, issueId: number, actorRole: string, actorName: string) {
-  const issue = await db.prepare(`SELECT issue_type,source_record_id FROM issues WHERE id=?`).bind(issueId).first<any>();
+  const issue = await db.prepare(`SELECT issue_type,source_record_id FROM issues WHERE id=?`).bind(issueId).first();
   if (issue?.issue_type !== "pump_install" || !issue?.source_record_id) return;
   const pumpId = Number(issue.source_record_id);
   await db.prepare(`UPDATE pump_records SET status='installed',updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP WHERE id=?`).bind(pumpId).run();
@@ -815,7 +815,7 @@ app.post("/api/auth/login", async (c) => {
     const recent = await c.env.DB.prepare(`
       SELECT COUNT(*) AS count FROM auth_login_attempts
       WHERE ip=? AND created_at >= datetime('now','-15 minutes')
-    `).bind(ip).first<any>();
+    `).bind(ip).first();
     if (Number(recent?.count || 0) >= 10) {
       return c.json({ success: false, error: "Príliš veľa neúspešných pokusov. Skúste to o 15 minút." }, 429);
     }
@@ -888,7 +888,7 @@ app.get("/api/push/status", async (c) => {
   const endpoint = String(c.req.query("endpoint") || "");
   if (!endpoint) return c.json({ success: true, active: false });
   const row = await c.env.DB.prepare(`SELECT active FROM push_subscriptions WHERE endpoint=? AND role=? AND LOWER(user_name)=LOWER(?) LIMIT 1`)
-    .bind(endpoint, auth.session!.role, auth.session!.name).first<any>();
+    .bind(endpoint, auth.session!.role, auth.session!.name).first();
   return c.json({ success: true, active: Boolean(row?.active) });
 });
 
@@ -939,14 +939,14 @@ app.get("/api/push/pending", async (c) => {
     await ensureFeatureTables(c.env.DB);
     const token = String(c.req.query("token") || "").trim();
     if (!token) return c.json({ success: false }, 400);
-    const subscription = await c.env.DB.prepare(`SELECT id, active FROM push_subscriptions WHERE device_token=? LIMIT 1`).bind(token).first<any>();
+    const subscription = await c.env.DB.prepare(`SELECT id, active FROM push_subscriptions WHERE device_token=? LIMIT 1`).bind(token).first();
     if (!subscription || !subscription.active) return c.json({ success: false }, 404);
     const row = await c.env.DB.prepare(`
       SELECT id,title,body,target_url
       FROM push_notifications
       WHERE subscription_id=? AND delivered_at IS NULL
       ORDER BY id DESC LIMIT 1
-    `).bind(subscription.id).first<any>();
+    `).bind(subscription.id).first();
     if (!row) return c.json({ success: true, notification: null });
     await c.env.DB.prepare(`UPDATE push_notifications SET delivered_at=CURRENT_TIMESTAMP WHERE subscription_id=? AND delivered_at IS NULL AND id<=?`).bind(subscription.id, row.id).run();
     return c.json({ success: true, notification: { title: row.title, body: row.body, url: row.target_url || "/" } });
@@ -1173,7 +1173,7 @@ app.post("/api/issues/:id/action", async (c) => {
       return c.json({ success: false, error: "Neplatná akcia." }, 400);
     }
 
-    const issue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+    const issue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     if (!issue) return c.json({ success: false, error: "Závada nebola nájdená." }, 404);
     const destinationRole = isStaffRole(String(issue.destination_role || ""))
       ? String(issue.destination_role) as StaffRole
@@ -1273,7 +1273,7 @@ app.post("/api/issues/:id/action", async (c) => {
       photoKeys,
       action === "close" ? "resolved" : "action"
     );
-    const updated = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+    const updated = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     return c.json({ success: true, issue: updated, photo_keys: photoKeys });
   } catch (error) {
     console.error(error);
@@ -1289,7 +1289,7 @@ app.post("/api/issues/:id/take", async (c) => {
     const session = await getSession(c);
     const workerName = session?.name || String(body.worker_name || "").trim();
     if (!workerName) return c.json({ success: false, error: "Chýba meno údržbára." }, 400);
-    const issueBeforeTake = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+    const issueBeforeTake = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     const updateResult = await c.env.DB.prepare(`
       UPDATE issues SET status='progress',destination_role='maintenance',assignee_role='maintenance',assignee_name=?,current_worker_name=?,last_actor_name=?,updated_at=CURRENT_TIMESTAMP
       WHERE id=? AND status='new'
@@ -1354,7 +1354,7 @@ app.post("/api/issues/:id/status", async (c) => {
     `).bind(id, eventType, workerName, message, actionPhotoKey).run();
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     if (status === "closed") {
-      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
       if (issueForNotify) await notifyIssueReporter(c, issueForNotify, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
       await syncPumpFromClosedIssue(c.env.DB, id, "maintenance", workerName);
     }
@@ -1443,7 +1443,7 @@ app.post("/api/issues/:id/manager-action", async (c) => {
     `).bind(id, eventType, managerName, message, photoKey).run();
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     if (action === "close") {
-      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
       if (issueForNotify) await notifyIssueReporter(c, issueForNotify, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
       await syncPumpFromClosedIssue(c.env.DB, id, "maintenance_manager", managerName);
     }
@@ -1526,7 +1526,7 @@ app.post("/api/issues/:id/operations-action", async (c) => {
     `).bind(id, eventType, operationsName, message, photoKey).run();
     const updatedIssue = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
     if (action === "close") {
-      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first<any>();
+      const issueForNotify = await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(id).first();
       if (issueForNotify) await notifyIssueReporter(c, issueForNotify, "✅ Vaša závada bola vyriešená", `Závada #${String(id).padStart(4, "0")} bola vyriešená.`);
       await syncPumpFromClosedIssue(c.env.DB, id, "operations_manager", operationsName);
     }
@@ -1925,7 +1925,7 @@ app.get("/api/messages/:id/replies", async (c) => {
     const id = Number(c.req.param("id"));
     const session = await getSession(c);
     if (!session) return c.json({ success: false, error: "Prihlásenie je potrebné." }, 401);
-    const original = await c.env.DB.prepare(`SELECT sender_name FROM maintenance_messages WHERE id=?`).bind(id).first<any>();
+    const original = await c.env.DB.prepare(`SELECT sender_name FROM maintenance_messages WHERE id=?`).bind(id).first();
     if (!original) return c.json({ success: false, error: "Správa nebola nájdená." }, 404);
     if (session.role === "operations_manager" || (session.role === "maintenance" && String(original.sender_name).toLocaleLowerCase() !== session.name.toLocaleLowerCase())) {
       return c.json({ success: false, error: "K tejto správe nemáte prístup." }, 403);
@@ -1950,7 +1950,7 @@ app.post("/api/messages/:id/reply", async (c) => {
     if (!session || !["maintenance", "maintenance_manager"].includes(session.role)) {
       return c.json({ success: false, error: "Na túto správu nemáte oprávnenie odpovedať." }, 403);
     }
-    const originalMessage = await c.env.DB.prepare(`SELECT sender_name FROM maintenance_messages WHERE id=?`).bind(id).first<any>();
+    const originalMessage = await c.env.DB.prepare(`SELECT sender_name FROM maintenance_messages WHERE id=?`).bind(id).first();
     if (!originalMessage) return c.json({ success: false, error: "Správa nebola nájdená." }, 404);
     if (session.role === "maintenance" && String(originalMessage.sender_name).toLocaleLowerCase() !== session.name.toLocaleLowerCase()) {
       return c.json({ success: false, error: "K tejto správe nemáte prístup." }, 403);
@@ -2010,7 +2010,7 @@ app.post("/api/messages/:id/resolve", async (c) => {
       VALUES (?, 'maintenance_manager', ?, 'Správa bola označená ako vybavená.', CURRENT_TIMESTAMP)
     `).bind(id, managerName).run();
 
-    const original = await c.env.DB.prepare(`SELECT sender_name FROM maintenance_messages WHERE id=?`).bind(id).first<any>();
+    const original = await c.env.DB.prepare(`SELECT sender_name FROM maintenance_messages WHERE id=?`).bind(id).first();
     if (original?.sender_name) scheduleNotification(c, ["maintenance"], "✅ Správa vybavená", "Vedúci označil vašu správu ako vybavenú.", "/", String(original.sender_name));
 
     return c.json({ success: true });
@@ -2031,7 +2031,7 @@ app.post("/api/messages/:id/create-task", async (c) => {
 
     const message = await c.env.DB.prepare(`
       SELECT * FROM maintenance_messages WHERE id=?
-    `).bind(id).first<any>();
+    `).bind(id).first();
     if (!message) return c.json({ success: false, error: "Správa nebola nájdená." }, 404);
 
     const result = await c.env.DB.prepare(`
@@ -2246,7 +2246,7 @@ app.post("/api/pumps/:id/action", async (c) => {
     }
     const id = Number(c.req.param("id"));
     if (!Number.isInteger(id) || id <= 0) return c.json({ success: false, error: "Neplatné číslo čerpadla." }, 400);
-    const pump = await c.env.DB.prepare(`SELECT * FROM pump_records WHERE id=?`).bind(id).first<any>();
+    const pump = await c.env.DB.prepare(`SELECT * FROM pump_records WHERE id=?`).bind(id).first();
     if (!pump) return c.json({ success: false, error: "Záznam čerpadla nebol nájdený." }, 404);
 
     const formData = await c.req.formData();
@@ -2314,7 +2314,7 @@ app.post("/api/pumps/:id/action", async (c) => {
       scheduleNotification(c, ["maintenance"], "🔩 Čerpadlo na montáž", `Čerpadlo #${id} prišlo z opravy a čaká na montáž.`, "/");
     }
 
-    const updated = await c.env.DB.prepare(`SELECT * FROM pump_records WHERE id=?`).bind(id).first<any>();
+    const updated = await c.env.DB.prepare(`SELECT * FROM pump_records WHERE id=?`).bind(id).first();
     return c.json({ success: true, pump: updated, issue_id: issueId });
   } catch (error) {
     console.error(error);
@@ -2342,7 +2342,7 @@ async function hasShoppingSession(c: any) {
   const secret = String(c.env.SESSION_SECRET || "");
   if (!raw || !secret) return false;
   const hash = await hmacHex(secret, raw);
-  const row = await c.env.DB.prepare(`SELECT id FROM shopping_sessions WHERE token_hash=? AND expires_at>CURRENT_TIMESTAMP`).bind(hash).first<any>();
+  const row = await c.env.DB.prepare(`SELECT id FROM shopping_sessions WHERE token_hash=? AND expires_at>CURRENT_TIMESTAMP`).bind(hash).first();
   return Boolean(row);
 }
 
@@ -2517,7 +2517,7 @@ app.get("/api/purchases", async (c) => {
 
 app.post("/api/purchases/:id/approve", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id"));
-  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='approved',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run();
   await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'approved',?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,'Schválené').run();
   await notifyNamedUser(c,row.requester_role,row.requester_name,"✅ Nákup schválený",`${row.item_name} bol schválený na nákup.`); return c.json({success:true});
@@ -2525,13 +2525,13 @@ app.post("/api/purchases/:id/approve", async (c) => {
 
 app.post("/api/purchases/:id/reject", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const body=await c.req.json().catch(()=>({})); const reason=String(body.reason||"").trim();
-  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='rejected',rejection_reason=?,approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(reason,session.name,id).run();
   await notifyNamedUser(c,row.requester_role,row.requester_name,"❌ Nákup zamietnutý",`${row.item_name}${reason?`: ${reason}`:"."}`); return c.json({success:true});
 });
 
 app.post("/api/purchases/:id/in-stock", async (c) => {
-  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='in_stock',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"📦 Položka je na sklade",`${row.item_name} je dostupný na sklade.`); return c.json({success:true});
 });
 
@@ -2544,7 +2544,7 @@ app.post("/api/shopping/logout", async (c) => { const raw=getCookie(c.req.raw,SH
 
 app.get("/api/shopping/list", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); await ensureFeatureTables(c.env.DB); const rows=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE status='approved' ORDER BY CASE WHEN priority='urgent' THEN 0 ELSE 1 END, approved_at,id`).all<any>(); const history=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE status IN ('purchased','in_stock') ORDER BY COALESCE(purchased_at,updated_at) DESC LIMIT 100`).all<any>(); return c.json({success:true,purchases:rows.results||[],history:history.results||[]}); });
 
-app.post("/api/shopping/:id/purchased", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=? AND status='approved'`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Položka nie je v nákupnom zozname."},404); await c.env.DB.prepare(`UPDATE purchase_requests SET status='purchased',purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"🛍️ Nákup vybavený",`${row.item_name} bol nakúpený.`); return c.json({success:true}); });
+app.post("/api/shopping/:id/purchased", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=? AND status='approved'`).bind(id).first(); if(!row) return c.json({success:false,error:"Položka nie je v nákupnom zozname."},404); await c.env.DB.prepare(`UPDATE purchase_requests SET status='purchased',purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"🛍️ Nákup vybavený",`${row.item_name} bol nakúpený.`); return c.json({success:true}); });
 
 app.get("/api/worker-stats", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
