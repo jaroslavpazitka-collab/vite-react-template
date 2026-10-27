@@ -35,7 +35,16 @@ type Screen =
   | "operations-history"
   | "operations-history-detail"
   | "operations-statistics"
-  | "operations-new-task";
+  | "operations-new-task"
+  | "handover"
+  | "handover-detail"
+  | "management-tasks"
+  | "management-task-detail"
+  | "reminders"
+  | "purchase-request"
+  | "purchase-approval"
+  | "shopping-login"
+  | "shopping-list";
 
 type MaintenanceFilter =
   | "new"
@@ -231,7 +240,15 @@ type PumpEvent = {
   created_at: string;
 };
 
-const APP_VERSION = "1.6.0";
+type HandoverNote = { id:number; author_role:string; author_name:string; text:string; priority:string; photo_key:string|null; created_at:string; updated_at:string; acknowledged:number; comment_count:number; last_comment_at:string|null; };
+type HandoverComment = { id:number; note_id:number; author_role:string; author_name:string; text:string; photo_key:string|null; created_at:string; };
+type ManagementTask = { id:number; title:string; description:string|null; status:string; priority:string; owner_name:string|null; created_by_role:string; created_by_name:string; photo_key:string|null; created_at:string; updated_at:string; closed_at:string|null; comment_count:number; };
+type ManagementTaskComment = { id:number; task_id:number; author_role:string; author_name:string; text:string; photo_key:string|null; created_at:string; };
+type ReminderItem = { id:number; title:string; due_date:string; due_time:string|null; source_note_id:number|null; created_by_name:string; created_at:string; };
+type PurchaseRequest = { id:number; requester_name:string; requester_role:string|null; item_name:string; quantity:string|null; price:string|null; price_kind:string|null; note:string|null; priority:string; photo_key:string|null; status:string; rejection_reason:string|null; approved_by_name:string|null; approved_at:string|null; purchased_at:string|null; created_at:string; updated_at:string; };
+type WorkerStat = { actor_name:string; taken_count:number; resolved_count:number; avg_hours:number|null; };
+
+const APP_VERSION = "1.7.0";
 
 const STAFF_DIRECTORY: Record<AuthRole, string[]> = {
   maintenance: [
@@ -247,7 +264,7 @@ const STAFF_DIRECTORY: Record<AuthRole, string[]> = {
 const ROLE_INFO: Record<AuthRole, { label: string; short: string; icon: string; colorClass: string }> = {
   maintenance: { label: "Údržba a technológia", short: "Údržba a technológia", icon: "🔧", colorClass: "role-maintenance" },
   maintenance_manager: { label: "Vedúci Údržby a technológie", short: "Vedúci Údržby a technológie", icon: "🛠️", colorClass: "role-manager" },
-  operations_manager: { label: "Prevádzkový manažér", short: "Prevádzkový manažér", icon: "📊", colorClass: "role-operations" },
+  operations_manager: { label: "Prevádzkový riaditeľ", short: "Prevádzkový riaditeľ", icon: "📊", colorClass: "role-operations" },
   lifeguard: { label: "Plavčíci", short: "Plavčíci", icon: "🏊", colorClass: "role-lifeguard" },
   sanitation: { label: "Sanita", short: "Čistota a hygiena areálu", icon: "✨", colorClass: "role-sanitation" },
 };
@@ -733,7 +750,7 @@ function App() {
     useState(0);
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR
+     PREVÁDZKOVÝ RIADITEĽ
      ========================================================= */
 
   const [operationsName, setOperationsName] =
@@ -782,7 +799,7 @@ function App() {
   const [staffTransferRole, setStaffTransferRole] = useState<AuthRole>("maintenance");
   const [staffInboxRole, setStaffInboxRole] = useState<AuthRole>("maintenance");
   const [staffStatusFilter, setStaffStatusFilter] = useState("open");
-  const [staffIssueReturnScreen, setStaffIssueReturnScreen] = useState<"staff-inbox" | "staff-my-reports">("staff-inbox");
+  const [staffIssueReturnScreen, setStaffIssueReturnScreen] = useState<Screen>("staff-inbox");
 
   const [pumps, setPumps] = useState<PumpRecord[]>([]);
   const [selectedPump, setSelectedPump] = useState<PumpRecord | null>(null);
@@ -795,6 +812,45 @@ function App() {
   const [pumpPhoto, setPumpPhoto] = useState<File | null>(null);
   const [pumpActionComment, setPumpActionComment] = useState("");
   const [pumpActionPhoto, setPumpActionPhoto] = useState<File | null>(null);
+
+  // v1.7.0 – odkazy, úlohy, pripomienky a nákupy
+  const [handoverNotes, setHandoverNotes] = useState<HandoverNote[]>([]);
+  const [selectedHandover, setSelectedHandover] = useState<HandoverNote | null>(null);
+  const [handoverComments, setHandoverComments] = useState<HandoverComment[]>([]);
+  const [handoverText, setHandoverText] = useState("");
+  const [handoverPriority, setHandoverPriority] = useState("normal");
+  const [handoverPhoto, setHandoverPhoto] = useState<File | null>(null);
+  const [handoverComment, setHandoverComment] = useState("");
+  const [handoverCommentPhoto, setHandoverCommentPhoto] = useState<File | null>(null);
+  const [managementTasks, setManagementTasks] = useState<ManagementTask[]>([]);
+  const [selectedManagementTask, setSelectedManagementTask] = useState<ManagementTask | null>(null);
+  const [managementTaskComments, setManagementTaskComments] = useState<ManagementTaskComment[]>([]);
+  const [managementTaskFilter, setManagementTaskFilter] = useState<"all"|"mine"|"unassigned">("all");
+  const [managementTaskTitle, setManagementTaskTitle] = useState("");
+  const [managementTaskDescription, setManagementTaskDescription] = useState("");
+  const [managementTaskPriority, setManagementTaskPriority] = useState("normal");
+  const [managementTaskComment, setManagementTaskComment] = useState("");
+  const [managementTaskPhoto, setManagementTaskPhoto] = useState<File | null>(null);
+  const [managementTaskAssignee, setManagementTaskAssignee] = useState("");
+  const [reminders, setReminders] = useState<ReminderItem[]>([]);
+  const [reminderTitle, setReminderTitle] = useState("");
+  const [reminderDate, setReminderDate] = useState("");
+  const [reminderTime, setReminderTime] = useState("");
+  const [purchases, setPurchases] = useState<PurchaseRequest[]>([]);
+  const [purchaseRequester, setPurchaseRequester] = useState("");
+  const [purchaseItem, setPurchaseItem] = useState("");
+  const [purchaseQuantity, setPurchaseQuantity] = useState("");
+  const [purchasePrice, setPurchasePrice] = useState("");
+  const [purchasePriceKind, setPurchasePriceKind] = useState("estimated");
+  const [purchaseNote, setPurchaseNote] = useState("");
+  const [purchasePriority, setPurchasePriority] = useState("normal");
+  const [purchasePhoto, setPurchasePhoto] = useState<File | null>(null);
+  const [shoppingPin, setShoppingPin] = useState("");
+  const [shoppingItems, setShoppingItems] = useState<PurchaseRequest[]>([]);
+  const [shoppingHistory, setShoppingHistory] = useState<PurchaseRequest[]>([]);
+  const [workerStats, setWorkerStats] = useState<WorkerStat[]>([]);
+  const [workerTakenFilterName, setWorkerTakenFilterName] = useState("");
+  const [workerClosedFilterName, setWorkerClosedFilterName] = useState("");
 
   /* =========================================================
      AKCIE ÚDRŽBÁRA
@@ -1401,10 +1457,12 @@ function App() {
         setManagerStatusFilter("all");
         void loadAlerts("management", true);
         window.setTimeout(() => void loadMessages("manager"), 0);
+        void loadHandover(); void loadManagementTasks(); void loadReminders(); void loadPurchases("mine"); void loadWorkerStats();
       } else if (role === "operations_manager") {
         await loadRatings();
         setOperationsStatusFilter("all");
         void loadAlerts("management", true);
+        void loadHandover(); void loadManagementTasks(); void loadReminders(); void loadPurchases("all"); void loadWorkerStats();
       } else {
         void loadAlerts("public", false);
       }
@@ -1724,7 +1782,8 @@ function App() {
 
   const performPinLogin = async () => {
     const name = loginNameChoice === "__other__" ? loginOtherName.trim() : loginNameChoice.trim();
-    if (!name) {
+    const pinIdentifiesUser = loginRole === "maintenance_manager" || loginRole === "operations_manager";
+    if (!pinIdentifiesUser && !name) {
       showModal("error", "Vyberte meno", "Vyberte svoje meno alebo zvoľte Iné a meno dopíšte.");
       setLoginPin("");
       return;
@@ -1751,10 +1810,12 @@ function App() {
         setManagerStatusFilter("all");
         void loadAlerts("management", true);
         window.setTimeout(() => void loadMessages("manager"), 0);
+        void loadHandover(); void loadManagementTasks(); void loadReminders(); void loadPurchases("mine"); void loadWorkerStats();
       } else if (session.role === "operations_manager") {
         await loadRatings();
         setOperationsStatusFilter("all");
         void loadAlerts("management", true);
+        void loadHandover(); void loadManagementTasks(); void loadReminders(); void loadPurchases("all"); void loadWorkerStats();
       } else {
         void loadAlerts("public", false);
       }
@@ -1833,7 +1894,7 @@ function App() {
       return;
     }
     try {
-      setLoginLoadingRole("PREVÁDZKOVÝ MANAŽÉR");
+      setLoginLoadingRole("PREVÁDZKOVÝ RIADITEĽ");
       const session = await loginStaff("operations_manager", operationsName, operationsPassword);
       setLoggedOperationsName(session.name);
       setOperationsPassword("");
@@ -1898,7 +1959,7 @@ function App() {
   };
 
   const openStaffIssue = async (issue: Issue) => {
-    setStaffIssueReturnScreen(screen === "staff-my-reports" ? "staff-my-reports" : "staff-inbox");
+    setStaffIssueReturnScreen(screen === "staff-my-reports" ? "staff-my-reports" : screen === "manager-dashboard" ? "manager-dashboard" : screen === "manager-decision" ? "manager-decision" : screen === "operations-dashboard" ? "operations-dashboard" : screen === "operations-decision" ? "operations-decision" : "staff-inbox");
     setSelectedIssue(issue);
     setStaffIssueAction(null);
     setStaffActionComment("");
@@ -2521,7 +2582,7 @@ function App() {
           ? "Úloha bola znovu otvorená"
           : "Vrátené vedúcemu údržby",
         operationsActionMode === "close"
-          ? "Prevádzkový manažér závadu uzavrel."
+          ? "Prevádzkový riaditeľ závadu uzavrel."
           : operationsActionMode === "reopen"
           ? "Úloha sa opäť zobrazí medzi novými úlohami údržby."
           : "Závada bola vrátená vedúcemu údržby na ďalšie riešenie.",
@@ -3377,6 +3438,8 @@ function App() {
     if (!matchesIssueSearch(issue, managerSearch)) return false;
     if (managerAgeFilter > 0 && daysSince(issue.created_at) < managerAgeFilter) return false;
     if (managerStaleFilter > 0 && daysSince(issue.updated_at) < managerStaleFilter) return false;
+    if (workerTakenFilterName && String(issue.assignee_name || issue.current_worker_name || "").toLowerCase() !== workerTakenFilterName.toLowerCase()) return false;
+    if (workerClosedFilterName && String(issue.last_actor_name || "").toLowerCase() !== workerClosedFilterName.toLowerCase()) return false;
     return true;
   });
 
@@ -3793,7 +3856,7 @@ function App() {
     <div className="action-overlay">
       <div className="action-dialog manager-action-dialog">
         <div className="action-handle"></div>
-        <div className="manager-dialog-role">PREVÁDZKOVÝ MANAŽÉR</div>
+        <div className="manager-dialog-role">PREVÁDZKOVÝ RIADITEĽ</div>
         <div className="action-dialog-icon">
           {operationsActionMode === "close" ? "✅" : operationsActionMode === "reopen" ? "🔄" : "↩️"}
         </div>
@@ -4236,6 +4299,176 @@ function App() {
     <div className="offline-banner">● Ste offline – nové hlásenie môžete uložiť ako koncept</div>
   ) : null;
 
+  const startVoiceDictation = (onText: (value: string) => void, current = "") => {
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) {
+      showModal("info", "Hlasové zadávanie", "Tento prehliadač nepodporuje priame hlasové zadávanie. Môžete použiť mikrofón na klávesnici telefónu.");
+      return;
+    }
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = "sk-SK";
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (event: any) => {
+      const value = String(event.results?.[0]?.[0]?.transcript || "").trim();
+      if (value) onText(current ? `${current} ${value}` : value);
+    };
+    recognition.onerror = () => showModal("info", "Hlasové zadávanie", "Hlas sa nepodarilo rozpoznať. Skúste to ešte raz alebo použite klávesnicu.");
+    recognition.start();
+  };
+
+  const speak = (text: string) => {
+    try {
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "sk-SK";
+      window.speechSynthesis.speak(utterance);
+    } catch { /* hlas je len doplnok */ }
+  };
+
+  const recognizeOnce = (prompt: string) => new Promise<string>((resolve, reject) => {
+    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognitionCtor) { reject(new Error("Tento prehliadač nepodporuje hlasové rozpoznávanie.")); return; }
+    speak(prompt);
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = "sk-SK"; recognition.interimResults = false; recognition.maxAlternatives = 1;
+    let started = false;
+    const start = () => { if (started) return; started = true; try { recognition.start(); } catch (e) { reject(e); } };
+    window.setTimeout(start, 900);
+    recognition.onresult = (event:any) => resolve(String(event.results?.[0]?.[0]?.transcript || "").trim());
+    recognition.onerror = () => reject(new Error("Hlas sa nepodarilo rozpoznať."));
+  });
+
+  const runVoiceReportAssistant = async () => {
+    try {
+      const loc = await recognizeOnce("Vitaj. Kde sa závada nachádza?"); if (loc) setLocation(loc);
+      const desc = await recognizeOnce("Čo sa stalo alebo čo je pokazené?"); if (desc) setDescription(desc);
+      const dest = (await recognizeOnce("Komu chceš závadu adresovať? Povedz údržba, plavčíci, sanita, vedúci alebo prevádzkový riaditeľ.")).toLowerCase();
+      if (dest.includes("plav")) setReportDestinationRole("lifeguard");
+      else if (dest.includes("sanit") || dest.includes("čist")) setReportDestinationRole("sanitation");
+      else if (dest.includes("vedúc")) setReportDestinationRole("maintenance_manager");
+      else if (dest.includes("riaditeľ") || dest.includes("manager") || dest.includes("manaž")) setReportDestinationRole("operations_manager");
+      else setReportDestinationRole("maintenance");
+      speak("Údaje som doplnil. Teraz ich skontroluj a ak chceš, pridaj fotografiu. Potom závadu odošli.");
+    } catch (e) { showModal("info", "Hlasový sprievodca", e instanceof Error ? e.message : "Hlasové zadávanie sa nepodarilo."); }
+  };
+
+  const managementTaskStatusLabel = (status: string) => ({
+    new: "Nové",
+    progress: "V riešení",
+    quote: "Čaká na ponuku",
+    decision: "Čaká na rozhodnutie",
+    realization: "Čaká na realizáciu",
+    closed: "Hotové",
+  }[status] || status);
+
+  const purchaseStatusLabel = (status: string) => ({
+    pending: "Na schválenie",
+    approved: "Schválené",
+    rejected: "Zamietnuté",
+    in_stock: "Máme na sklade",
+    purchased: "Nakúpené",
+  }[status] || status);
+
+  const loadHandover = async () => {
+    const r = await fetchWithRetry("/api/handover", undefined, 10000, 1);
+    if (r.status === 401) return;
+    const d = await r.json();
+    if (d.success) setHandoverNotes(d.notes || []);
+  };
+
+  const createHandover = async () => {
+    if (!handoverText.trim()) return showModal("info", "Odkaz", "Napíšte alebo nadiktujte odkaz.");
+    setFeatureLoading(true);
+    try {
+      const fd = new FormData(); fd.append("text", handoverText.trim()); fd.append("priority", handoverPriority); if (handoverPhoto) fd.append("photo", handoverPhoto);
+      const r = await fetchWithRetry("/api/handover", { method:"POST", body:fd }, 15000, 1); const d = await r.json();
+      if (!d.success) throw new Error(d.error || "Odkaz sa nepodarilo uložiť.");
+      const reminder = parseReminderFromText(handoverText);
+      if (reminder && window.confirm(`V texte som rozpoznal dátum ${reminder.date}${reminder.time ? ` o ${reminder.time}` : ""}. Vytvoriť pripomienku?`)) {
+        await fetchWithRetry("/api/reminders", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ title:handoverText.trim(), due_date:reminder.date, due_time:reminder.time || null, source_note_id:d.id }) }, 10000, 1);
+      }
+      setHandoverText(""); setHandoverPriority("normal"); setHandoverPhoto(null); await loadHandover();
+    } catch (e) { showModal("error", "Odkaz", e instanceof Error ? e.message : "Odkaz sa nepodarilo uložiť."); } finally { setFeatureLoading(false); }
+  };
+
+  const openHandover = async (note: HandoverNote) => {
+    setSelectedHandover(note); setScreen("handover-detail");
+    const r = await fetchWithRetry(`/api/handover/${note.id}/comments`, undefined, 10000, 1); const d=await r.json(); if(d.success) setHandoverComments(d.comments||[]);
+  };
+
+  const acknowledgeHandover = async (note: HandoverNote) => {
+    await fetchWithRetry(`/api/handover/${note.id}/ack`, { method:"POST" }, 10000, 1); await loadHandover();
+  };
+
+  const addHandoverComment = async () => {
+    if (!selectedHandover || !handoverComment.trim()) return;
+    const fd=new FormData(); fd.append("text",handoverComment.trim()); if(handoverCommentPhoto) fd.append("photo",handoverCommentPhoto);
+    const r=await fetchWithRetry(`/api/handover/${selectedHandover.id}/comments`,{method:"POST",body:fd},15000,1); const d=await r.json(); if(!d.success) return showModal("error","Komentár",d.error||"Nepodarilo sa uložiť.");
+    setHandoverComment(""); setHandoverCommentPhoto(null); await openHandover(selectedHandover); await loadHandover();
+  };
+
+  const loadManagementTasks = async () => {
+    const r=await fetchWithRetry("/api/management-tasks",undefined,10000,1); if(r.status===401)return [] as ManagementTask[]; const d=await r.json(); const list=(d.success?d.tasks||[]:[]) as ManagementTask[]; if(d.success)setManagementTasks(list); return list;
+  };
+
+  const createManagementTask = async () => {
+    if(!managementTaskTitle.trim()) return showModal("info","Úloha","Zadajte názov úlohy.");
+    const fd=new FormData(); fd.append("title",managementTaskTitle.trim()); fd.append("description",managementTaskDescription.trim()); fd.append("priority",managementTaskPriority); if(managementTaskPhoto) fd.append("photo",managementTaskPhoto);
+    const r=await fetchWithRetry("/api/management-tasks",{method:"POST",body:fd},15000,1); const d=await r.json(); if(!d.success)return showModal("error","Úloha",d.error||"Nepodarilo sa uložiť.");
+    setManagementTaskTitle("");setManagementTaskDescription("");setManagementTaskPriority("normal");setManagementTaskPhoto(null);await loadManagementTasks();
+  };
+
+  const openManagementTask = async (task: ManagementTask) => {
+    setSelectedManagementTask(task); setScreen("management-task-detail"); const r=await fetchWithRetry(`/api/management-tasks/${task.id}/comments`,undefined,10000,1); const d=await r.json(); if(d.success)setManagementTaskComments(d.comments||[]);
+  };
+
+  const managementTaskAction = async (action:string, status?:string) => {
+    if(!selectedManagementTask)return; const fd=new FormData(); fd.append("action",action); if(status)fd.append("status",status); if(action==="assign")fd.append("owner_name",managementTaskAssignee); if(managementTaskComment.trim())fd.append("message",managementTaskComment.trim()); if(managementTaskPhoto)fd.append("photo",managementTaskPhoto);
+    const r=await fetchWithRetry(`/api/management-tasks/${selectedManagementTask.id}/action`,{method:"POST",body:fd},15000,1); const d=await r.json(); if(!d.success)return showModal("error","Úloha",d.error||"Akcia zlyhala.");
+    setManagementTaskComment("");setManagementTaskPhoto(null);const list=await loadManagementTasks(); const refreshed=list.find(x=>x.id===selectedManagementTask.id); if(refreshed)setSelectedManagementTask(refreshed);
+    const cr=await fetchWithRetry(`/api/management-tasks/${selectedManagementTask.id}/comments`,undefined,10000,1); const cd=await cr.json(); if(cd.success)setManagementTaskComments(cd.comments||[]);
+  };
+
+  const loadReminders = async () => { const r=await fetchWithRetry("/api/reminders?scope=today",undefined,10000,1); if(r.status===401)return; const d=await r.json(); if(d.success)setReminders(d.reminders||[]); };
+  const createReminder = async () => {
+    if(!reminderTitle.trim()||!reminderDate)return showModal("info","Pripomienka","Doplňte text a dátum.");
+    const r=await fetchWithRetry("/api/reminders",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({title:reminderTitle.trim(),due_date:reminderDate,due_time:reminderTime||null})},10000,1); const d=await r.json(); if(!d.success)return showModal("error","Pripomienka",d.error||"Nepodarilo sa uložiť."); setReminderTitle("");setReminderDate("");setReminderTime("");await loadReminders();
+  };
+
+  const loadPurchases = async (scope = "mine") => { const r=await fetchWithRetry(`/api/purchases?scope=${scope}`,undefined,10000,1); if(r.status===401)return; const d=await r.json(); if(d.success)setPurchases(d.purchases||[]); };
+  const submitPurchase = async () => {
+    if(!activeRole && !purchaseRequester.trim()) return showModal("info","Nákup","Meno žiadateľa je povinné.");
+    if(!purchaseItem.trim()) return showModal("info","Nákup","Napíšte, čo treba kúpiť.");
+    const fd=new FormData(); if(!activeRole)fd.append("requester_name",purchaseRequester.trim()); fd.append("item_name",purchaseItem.trim());fd.append("quantity",purchaseQuantity);fd.append("price",purchasePrice);fd.append("price_kind",purchasePriceKind);fd.append("note",purchaseNote);fd.append("priority",purchasePriority);if(purchasePhoto)fd.append("photo",purchasePhoto);
+    const r=await fetchWithRetry("/api/purchases",{method:"POST",body:fd},15000,1);const d=await r.json();if(!d.success)return showModal("error","Nákup",d.error||"Požiadavka sa nepodarila.");
+    setPurchaseRequester("");setPurchaseItem("");setPurchaseQuantity("");setPurchasePrice("");setPurchaseNote("");setPurchasePriority("normal");setPurchasePhoto(null);showModal("success","Požiadavka odoslaná","Požiadavka bola odoslaná prevádzkovému riaditeľovi.");if(activeRole){await loadPurchases("mine");setScreen("staff-portal");}else setScreen("home");
+  };
+
+  const purchaseDecision = async (id:number, action:"approve"|"reject"|"in-stock") => {
+    let init:RequestInit={method:"POST"}; if(action==="reject"){const reason=window.prompt("Dôvod zamietnutia (voliteľné):","")||"";init={method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({reason})};}
+    const r=await fetchWithRetry(`/api/purchases/${id}/${action}`,init,10000,1);const d=await r.json();if(!d.success)return showModal("error","Nákup",d.error||"Akcia zlyhala.");await loadPurchases("all");
+  };
+
+  const shoppingLogin = async () => { if(!/^\d{4}$/.test(shoppingPin))return; const r=await fetchWithRetry("/api/shopping/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({pin:shoppingPin})},10000,1);const d=await r.json();if(!d.success)return showModal("error","Nákupný zoznam",d.error||"Nesprávny PIN.");setShoppingPin("");await loadShoppingList();setScreen("shopping-list"); };
+  const loadShoppingList = async () => { const r=await fetchWithRetry("/api/shopping/list",undefined,10000,1);const d=await r.json();if(d.success){setShoppingItems(d.purchases||[]);setShoppingHistory(d.history||[]);} };
+  const markPurchased = async (id:number) => { const r=await fetchWithRetry(`/api/shopping/${id}/purchased`,{method:"POST"},10000,1);const d=await r.json();if(!d.success)return showModal("error","Nákup",d.error||"Akcia zlyhala.");await loadShoppingList(); };
+
+  const loadWorkerStats = async () => { const r=await fetchWithRetry("/api/worker-stats",undefined,10000,1);if(r.status===401)return;const d=await r.json();if(d.success)setWorkerStats(d.workers||[]); };
+
+  function parseReminderFromText(value:string): {date:string;time:string|null}|null {
+    const clean=value.toLowerCase(); const now=new Date(); const local=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const iso=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    let target:Date|null=null;
+    if(clean.includes("zajtra")){target=new Date(local);target.setDate(target.getDate()+1);} else if(clean.includes("pozajtra")){target=new Date(local);target.setDate(target.getDate()+2);}
+    const dm=clean.match(/\b(\d{1,2})[.\/-]\s*(\d{1,2})(?:[.\/-]\s*(\d{4}))?/); if(dm){const y=dm[3]?Number(dm[3]):local.getFullYear();target=new Date(y,Number(dm[2])-1,Number(dm[1]));if(target<local&&!dm[3])target.setFullYear(target.getFullYear()+1);}
+    if(!target){const ordinal=clean.match(/\b(\d{1,2})(?:\.|-?teho|-?tého)\b/);if(ordinal){target=new Date(local.getFullYear(),local.getMonth(),Number(ordinal[1]));if(target<local)target=new Date(local.getFullYear(),local.getMonth()+1,Number(ordinal[1]));}}
+    if(!target){const weekdays:[[string,number],[string,number],[string,number],[string,number],[string,number],[string,number],[string,number]]=[["nede",0],["pondel",1],["utor",2],["stred",3],["štvrt",4],["piat",5],["sobot",6]];for(const [stem,day] of weekdays){if(clean.includes(stem)){target=new Date(local);let diff=(day-local.getDay()+7)%7;if(diff===0)diff=7;target.setDate(target.getDate()+diff);break;}}}
+    if(!target)return null; const tm=clean.match(/(?:o|okolo)\s*(\d{1,2})(?:[:.]([0-5]\d))?/); const time=tm?`${String(Number(tm[1])).padStart(2,"0")}:${tm[2]||"00"}`:null; return {date:iso(target),time};
+  }
+
+
   const globalWindows = (
     <>
       {duplicateWindow}
@@ -4260,7 +4493,7 @@ function App() {
     titleRole:
       | "ÚDRŽBA"
       | "VEDÚCI ÚDRŽBY"
-      | "PREVÁDZKOVÝ MANAŽÉR"
+      | "PREVÁDZKOVÝ RIADITEĽ"
   ) => {
     if (!selectedIssue) return null;
 
@@ -4285,7 +4518,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card history-detail-card">
 
             <div className="top-bar">
@@ -4578,12 +4811,12 @@ function App() {
   };
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - LOGIN
+     PREVÁDZKOVÝ RIADITEĽ - LOGIN
      ========================================================= */
 
   if (!authReady) {
     return (
-      <main className="app-shell">
+      <main className="app-shell new-ui-shell legacy-modernized-shell">
         <section className="app-card login-card session-restore-card">
           <div className="loading-spinner" />
           <h1>Načítavam aplikáciu</h1>
@@ -4619,25 +4852,27 @@ function App() {
             <div className="pin-login-body">
               <div className={`pin-role-icon ${info.colorClass}`}>{info.icon}</div>
               <h2>Prihlásenie</h2>
-              <p>Vyberte svoje meno a zadajte 4-miestny PIN.</p>
+              <p>{["maintenance_manager","operations_manager"].includes(loginRole) ? "Zadajte svoj 4-miestny PIN. Systém vás podľa PINu automaticky identifikuje." : "Vyberte svoje meno a zadajte 4-miestny PIN."}</p>
 
-              <label className="new-field-label">
-                Vaše meno
-                <select
-                  value={loginNameChoice}
-                  onChange={(e) => { setLoginNameChoice(e.target.value); setLoginPin(""); }}
-                >
-                  <option value="">Vyberte meno…</option>
-                  {names.map((name) => <option key={name} value={name}>{name}</option>)}
-                  <option value="__other__">Iné</option>
-                </select>
-              </label>
-              {loginNameChoice === "__other__" && (
+              {!["maintenance_manager","operations_manager"].includes(loginRole) && (<>
                 <label className="new-field-label">
-                  Meno
-                  <input value={loginOtherName} onChange={(e) => setLoginOtherName(e.target.value)} placeholder="Napíšte meno" />
+                  Vaše meno
+                  <select
+                    value={loginNameChoice}
+                    onChange={(e) => { setLoginNameChoice(e.target.value); setLoginPin(""); }}
+                  >
+                    <option value="">Vyberte meno…</option>
+                    {names.map((name) => <option key={name} value={name}>{name}</option>)}
+                    <option value="__other__">Iné</option>
+                  </select>
                 </label>
-              )}
+                {loginNameChoice === "__other__" && (
+                  <label className="new-field-label">
+                    Meno
+                    <input value={loginOtherName} onChange={(e) => setLoginOtherName(e.target.value)} placeholder="Napíšte meno" />
+                  </label>
+                )}
+              </>)}
 
               <div className="pin-label">Zadajte svoj PIN</div>
               <div className="pin-dots" aria-label={`${loginPin.length} zo 4 číslic`}>
@@ -4659,6 +4894,78 @@ function App() {
       </>
     );
   }
+
+  if (screen === "handover" && activeRole && ["maintenance_manager","operations_manager"].includes(activeRole)) {
+    const activeNotes = handoverNotes.filter((n) => !Number(n.acknowledged));
+    const archivedNotes = handoverNotes.filter((n) => Number(n.acknowledged));
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card">
+      <div className="new-page-header"><button onClick={()=>setScreen("staff-portal")}>←</button><div><small>ODOVZDANIE SLUŽBY</small><h1>Odkazy medzi vedúcimi</h1></div><span>{activeNotes.length}</span></div>
+      <div className="feature-compose-card">
+        <div className="voice-field-row"><textarea rows={3} value={handoverText} onChange={e=>setHandoverText(e.target.value)} placeholder="Napíšte odkaz pre kolegov…"/><button className="voice-button" onClick={()=>startVoiceDictation(setHandoverText,handoverText)}>🎤</button></div>
+        <div className="inline-fields"><select value={handoverPriority} onChange={e=>setHandoverPriority(e.target.value)}><option value="normal">Bežné</option><option value="urgent">Súrne</option></select><label className="file-mini">📷 Foto<input type="file" accept="image/*" onChange={e=>setHandoverPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" disabled={featureLoading} onClick={()=>void createHandover()}>Pridať odkaz</button></div>
+      </div>
+      <h3 className="section-caption">Aktuálne odkazy</h3>
+      <div className="compact-note-list">{activeNotes.length===0?<div className="new-empty-state">✓ Nemáte žiadne nové odkazy.</div>:activeNotes.map(note=><div className={`compact-note-row ${note.priority==='urgent'?'urgent':''}`} key={note.id}><button className="note-main" onClick={()=>void openHandover(note)}><span className="note-bullet">○</span><div><strong>{note.text}</strong><small>{note.author_name} • {formatDate(note.updated_at)} {note.comment_count?`• ${note.comment_count} koment.`:''}</small></div></button><button className="note-ack" onClick={()=>void acknowledgeHandover(note)}>✓</button></div>)}</div>
+      <details className="history-details"><summary>História odkazov ({archivedNotes.length})</summary><div className="compact-note-list">{archivedNotes.map(note=><button key={note.id} className="compact-history-row" onClick={()=>void openHandover(note)}>{note.text}<small>{note.author_name} • {formatDate(note.updated_at)}</small></button>)}</div></details>
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "handover-detail" && selectedHandover) {
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card">
+      <div className="new-page-header"><button onClick={()=>{setScreen("handover");void loadHandover();}}>←</button><div><small>ODKAZ</small><h1>{selectedHandover.priority==='urgent'?'Súrny odkaz':'Odkaz medzi vedúcimi'}</h1></div></div>
+      <div className="detail-text-card"><p>{selectedHandover.text}</p><small>{selectedHandover.author_name} • {formatDate(selectedHandover.created_at)}</small>{selectedHandover.photo_key&&<img src={getPhotoUrl(selectedHandover.photo_key)} alt="Foto odkazu"/>}</div>
+      <div className="thread-list">{handoverComments.map(c=><div className="thread-item" key={c.id}><strong>{c.author_name}</strong><small>{formatDate(c.created_at)}</small><p>{c.text}</p>{c.photo_key&&<img src={getPhotoUrl(c.photo_key)} alt="Foto komentára"/>}</div>)}</div>
+      <div className="feature-compose-card"><div className="voice-field-row"><textarea rows={3} value={handoverComment} onChange={e=>setHandoverComment(e.target.value)} placeholder="Pridať komentár…"/><button className="voice-button" onClick={()=>startVoiceDictation(setHandoverComment,handoverComment)}>🎤</button></div><div className="inline-fields"><label className="file-mini">📷 Foto<input type="file" accept="image/*" onChange={e=>setHandoverCommentPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void addHandoverComment()}>Odoslať</button></div></div>
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "management-tasks" && activeRole && ["maintenance_manager","operations_manager"].includes(activeRole)) {
+    const visible=managementTasks.filter(t=>managementTaskFilter==='all'?true:managementTaskFilter==='mine'?t.owner_name?.toLowerCase()===activeStaffName.toLowerCase():!t.owner_name);
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>setScreen("staff-portal")}>←</button><div><small>RIADENIE PRÁCE</small><h1>Úlohy</h1></div><span>{managementTasks.filter(t=>t.status!=='closed').length}</span></div>
+      <div className="feature-compose-card"><input value={managementTaskTitle} onChange={e=>setManagementTaskTitle(e.target.value)} placeholder="Názov novej úlohy"/><div className="voice-field-row"><textarea rows={2} value={managementTaskDescription} onChange={e=>setManagementTaskDescription(e.target.value)} placeholder="Popis úlohy…"/><button className="voice-button" onClick={()=>startVoiceDictation(setManagementTaskDescription,managementTaskDescription)}>🎤</button></div><div className="inline-fields"><select value={managementTaskPriority} onChange={e=>setManagementTaskPriority(e.target.value)}><option value="normal">Bežná</option><option value="urgent">Súrna</option></select><label className="file-mini">📷 Foto<input type="file" accept="image/*" onChange={e=>setManagementTaskPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void createManagementTask()}>Pridať úlohu</button></div></div>
+      <div className="status-chip-row"><button className={managementTaskFilter==='all'?'active':''} onClick={()=>setManagementTaskFilter('all')}>Všetky</button><button className={managementTaskFilter==='mine'?'active':''} onClick={()=>setManagementTaskFilter('mine')}>Moje</button><button className={managementTaskFilter==='unassigned'?'active':''} onClick={()=>setManagementTaskFilter('unassigned')}>Nepridelené</button></div>
+      <div className="new-issue-list">{visible.map(t=><button key={t.id} className={`new-issue-row ${t.priority==='urgent'?'urgent-row':''}`} onClick={()=>void openManagementTask(t)}><div className={`issue-status-dot status-${t.status==='closed'?'closed':'progress'}`}/><div className="new-issue-main"><div className="new-issue-top"><strong>{t.title}</strong><span>{managementTaskStatusLabel(t.status)}</span></div><p>{t.description||'Bez popisu'}</p><small>👤 {t.owner_name?`Rieši: ${t.owner_name}`:'Nepridelené'} • {formatDate(t.updated_at)}</small></div><b>›</b></button>)}</div>
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "management-task-detail" && selectedManagementTask) {
+    const statuses=[['progress','V riešení'],['quote','Čaká na ponuku'],['decision','Čaká na rozhodnutie'],['realization','Čaká na realizáciu'],['closed','Hotové']];
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>{setScreen('management-tasks');void loadManagementTasks();}}>←</button><div><small>ÚLOHA #{selectedManagementTask.id}</small><h1>{selectedManagementTask.title}</h1></div></div>
+      <div className="detail-text-card"><p>{selectedManagementTask.description||'Bez popisu'}</p><small>Vytvoril: {selectedManagementTask.created_by_name} • Zodpovedný: {selectedManagementTask.owner_name||'zatiaľ nikto'}</small></div>
+      {activeRole==="operations_manager"&&<div className="task-assign-row"><select value={managementTaskAssignee} onChange={e=>setManagementTaskAssignee(e.target.value)}><option value="">Vybrať zodpovedného vedúceho…</option>{STAFF_DIRECTORY.maintenance_manager.map(name=><option key={name} value={name}>{name}</option>)}</select><button onClick={()=>void managementTaskAction('assign')}>Priradiť</button></div>}
+      <div className="task-action-strip"><button onClick={()=>void managementTaskAction('take')}>🙋 Prevziať k sebe</button>{statuses.map(([s,l])=><button key={s} onClick={()=>void managementTaskAction('status',s)}>{l}</button>)}</div>
+      <div className="thread-list">{managementTaskComments.map(c=><div className="thread-item" key={c.id}><strong>{c.author_name}</strong><small>{formatDate(c.created_at)}</small><p>{c.text}</p>{c.photo_key&&<img src={getPhotoUrl(c.photo_key)} alt="Foto"/>}</div>)}</div>
+      <div className="feature-compose-card"><div className="voice-field-row"><textarea rows={3} value={managementTaskComment} onChange={e=>setManagementTaskComment(e.target.value)} placeholder="Pridať komentár / priebežnú informáciu…"/><button className="voice-button" onClick={()=>startVoiceDictation(setManagementTaskComment,managementTaskComment)}>🎤</button></div><div className="inline-fields"><label className="file-mini">📷 Foto<input type="file" accept="image/*" onChange={e=>setManagementTaskPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void managementTaskAction('comment')}>Pridať komentár</button></div></div>
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "reminders" && activeRole && ["maintenance_manager","operations_manager"].includes(activeRole)) {
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>setScreen('staff-portal')}>←</button><div><small>PREHĽAD DŇA</small><h1>Dnešné pripomienky</h1></div><span>{reminders.length}</span></div>
+      <div className="feature-compose-card"><input value={reminderTitle} onChange={e=>setReminderTitle(e.target.value)} placeholder="Nová pripomienka"/><div className="inline-fields"><input type="date" value={reminderDate} onChange={e=>setReminderDate(e.target.value)}/><input type="time" value={reminderTime} onChange={e=>setReminderTime(e.target.value)}/><button className="new-primary-button" onClick={()=>void createReminder()}>Pridať</button></div></div>
+      <div className="reminder-list">{reminders.length===0?<div className="new-empty-state">Dnes nemáte žiadne pripomienky.</div>:reminders.map(r=><button className="reminder-row reminder-button" key={r.id} onClick={()=>{if(r.source_note_id){const note=handoverNotes.find(n=>n.id===r.source_note_id);if(note)void openHandover(note);}}}><span>🔔</span><div><strong>{r.title}</strong><small>{r.due_time||'bez času'}{r.source_note_id?' • otvoriť pôvodný odkaz':''}</small></div></button>)}</div>
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "purchase-request") {
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>setScreen(activeRole?'staff-portal':'home')}>←</button><div><small>NÁKUPY</small><h1>Požiadavka na nákup</h1></div></div>
+      <div className="purchase-form">{!activeRole&&<label>Meno žiadateľa *<input value={purchaseRequester} onChange={e=>setPurchaseRequester(e.target.value)}/></label>}<label>Čo treba kúpiť *<input value={purchaseItem} onChange={e=>setPurchaseItem(e.target.value)} /></label><div className="two-col-fields"><label>Množstvo<input value={purchaseQuantity} onChange={e=>setPurchaseQuantity(e.target.value)}/></label><label>Priorita<select value={purchasePriority} onChange={e=>setPurchasePriority(e.target.value)}><option value="normal">Bežné</option><option value="urgent">Súrne</option></select></label></div><div className="two-col-fields"><label>Cena<input value={purchasePrice} onChange={e=>setPurchasePrice(e.target.value)} placeholder="napr. 80 €"/></label><label>Typ ceny<select value={purchasePriceKind} onChange={e=>setPurchasePriceKind(e.target.value)}><option value="estimated">Odhadovaná</option><option value="exact">Presná</option></select></label></div><label>Poznámka<textarea rows={3} value={purchaseNote} onChange={e=>setPurchaseNote(e.target.value)}/></label><label className="file-mini">📷 Pridať fotografiu<input type="file" accept="image/*" onChange={e=>setPurchasePhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void submitPurchase()}>Odoslať požiadavku</button></div>
+      {activeRole&&<div className="my-purchase-section"><h3>Moje požiadavky a nákupy</h3>{purchases.slice(0,8).map(p=><div key={p.id} className="purchase-status-row"><strong>{p.item_name}</strong><span className={`purchase-status ${p.status}`}>{purchaseStatusLabel(p.status)}</span></div>)}</div>}
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "purchase-approval" && activeRole === "operations_manager") {
+    const pending=purchases.filter(p=>p.status==='pending');
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>setScreen('staff-portal')}>←</button><div><small>NÁKUPY</small><h1>Schvaľovanie nákupov</h1></div><span>{pending.length}</span></div><div className="purchase-approval-list">{pending.length===0?<div className="new-empty-state">✓ Nič nečaká na schválenie.</div>:pending.map(p=><div key={p.id} className={`purchase-approval-row ${p.priority==='urgent'?'urgent':''}`}><div className="purchase-dot">○</div><div className="purchase-copy"><strong>{p.item_name}{p.quantity?` • ${p.quantity}`:''}</strong><small>{p.requester_name}{p.price?` • ${p.price_kind==='exact'?'presná':'odhad'} ${p.price}`:''}</small>{p.note&&<p>{p.note}</p>}</div><div className="purchase-actions"><button onClick={()=>void purchaseDecision(p.id,'approve')}>✓</button><button onClick={()=>void purchaseDecision(p.id,'in-stock')}>📦</button><button onClick={()=>void purchaseDecision(p.id,'reject')}>✕</button></div></div>)}</div></section></main>{globalWindows}</>;
+  }
+
+  if (screen === "shopping-login") {
+    return <><main className="app-shell new-ui-shell"><section className="app-card pin-login-card"><div className="new-page-header"><button onClick={()=>setScreen('home')}>←</button><div><small>NÁKUPY</small><h1>Nákupný zoznam</h1></div></div><div className="pin-login-body"><div className="pin-role-icon role-operations">🛒</div><h2>Zadajte spoločný PIN</h2><div className="pin-dots">{[0,1,2,3].map(i=><span key={i} className={i<shoppingPin.length?'filled':''}/>)}</div><div className="pin-keypad">{[1,2,3,4,5,6,7,8,9].map(n=><button key={n} onClick={()=>setShoppingPin(v=>v.length<4?`${v}${n}`:v)}>{n}</button>)}<button onClick={()=>setShoppingPin('')}>C</button><button onClick={()=>setShoppingPin(v=>v.length<4?`${v}0`:v)}>0</button><button onClick={()=>setShoppingPin(v=>v.slice(0,-1))}>⌫</button></div><button className="new-primary-button" disabled={shoppingPin.length!==4} onClick={()=>void shoppingLogin()}>Otvoriť zoznam</button></div></section></main>{globalWindows}</>;
+  }
+
+  if (screen === "shopping-list") {
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>setScreen('home')}>←</button><div><small>CHECKLIST</small><h1>Nákupný zoznam</h1></div><span>{shoppingItems.length}</span></div><div className="shopping-checklist">{shoppingItems.length===0?<div className="new-empty-state">✓ Všetko je nakúpené.</div>:shoppingItems.map(p=><button key={p.id} className={`shopping-row ${p.priority==='urgent'?'urgent':''}`} onClick={()=>void markPurchased(p.id)}><span>○</span><div><strong>{p.item_name}</strong><small>{p.quantity||''} {p.requester_name?`• žiada ${p.requester_name}`:''}</small></div></button>)}</div><details className="history-details"><summary>Nakúpené / vybavené ({shoppingHistory.length})</summary><div className="shopping-history-list">{shoppingHistory.map(p=><div key={p.id} className="shopping-history-row"><span>✓</span><div><strong>{p.item_name}</strong><small>{p.status==='in_stock'?'Vydané zo skladu':'Nakúpené'} • {formatDate(p.purchased_at||p.updated_at)}</small></div></div>)}</div></details></section></main>{globalWindows}</>;
+  }
+
 
   if (screen === "staff-portal" && activeRole) {
     const info = ROLE_INFO[activeRole];
@@ -4689,44 +4996,43 @@ function App() {
                 {pushFeatureButton}
               </div>
 
-              <div className="portal-grid">
-                <button className="portal-tile tile-report" onClick={openNewReportForStaff}>
-                  <span className="tile-icon">＋</span><div><strong>Nahlásiť závadu</strong><small>Adresovať ktorémukoľvek stredisku</small></div><b>›</b>
-                </button>
-                {(activeRole === "maintenance" || activeRole === "lifeguard" || activeRole === "sanitation") && (
-                  <button className="portal-tile tile-my" onClick={() => setScreen("staff-my-reports")}>
-                    <span className="tile-icon">📋</span><div><strong>Mnou hlásené závady</strong><small>Sledovanie priebehu mojich hlásení</small></div>{myOpen > 0 && <em>{myOpen}</em>}<b>›</b>
-                  </button>
-                )}
+              {(["maintenance_manager","operations_manager"].includes(activeRole)) ? (<>
+                <div className="manager-top-grid">
+                  <button className="manager-action-card card-report" onClick={openNewReportForStaff}><span>🔧</span><div><strong>Nahlásiť závadu</strong><small>Nové hlásenie</small></div></button>
+                  <button className="manager-action-card card-handover" onClick={()=>{void loadHandover();setScreen("handover");}}><span>💬</span><div><strong>Odkazy</strong><small>Medzi vedúcimi</small></div>{handoverNotes.filter(n=>!Number(n.acknowledged)).length>0&&<em>{handoverNotes.filter(n=>!Number(n.acknowledged)).length}</em>}</button>
+                  <button className="manager-action-card card-tasks" onClick={()=>{void loadManagementTasks();setScreen("management-tasks");}}><span>✅</span><div><strong>Úlohy</strong><small>{managementTasks.filter(t=>t.status!=="closed").length} otvorených / {managementTasks.filter(t=>t.status!=="closed"&&t.owner_name?.toLowerCase()===activeStaffName.toLowerCase()).length} moje</small></div></button>
+                  <button className="manager-action-card card-reminders" onClick={()=>{void loadReminders();setScreen("reminders");}}><span>📅</span><div><strong>Dnešné pripomienky</strong><small>{reminders.length} dnes</small></div>{reminders.length>0&&<em>{reminders.length}</em>}</button>
+                  {activeRole==="operations_manager"&&<button className="manager-action-card card-purchase" onClick={()=>{void loadPurchases("all");setScreen("purchase-approval");}}><span>🛒</span><div><strong>Schvaľovanie nákupov</strong><small>{purchases.filter(p=>p.status==="pending").length} čaká</small></div>{purchases.filter(p=>p.status==="pending").length>0&&<em>🔔 {purchases.filter(p=>p.status==="pending").length}</em>}</button>}
+                  {activeRole==="operations_manager"&&<button className="manager-action-card card-overview" onClick={()=>setScreen("operations-dashboard")}><span>🔧</span><div><strong>Závady – prehľad</strong><small>{issues.filter(i=>i.status!=="closed").length} otvorených</small></div></button>}
+                </div>
 
-                {(activeRole === "maintenance" || activeRole === "lifeguard" || activeRole === "sanitation") && (
-                  <button className={`portal-tile ${info.colorClass}`} onClick={() => openInbox(activeRole)}>
-                    <span className="tile-icon">{info.icon}</span><div><strong>Závady adresované nám</strong><small>{info.label}</small></div>{countFor(activeRole) > 0 && <em>{countFor(activeRole)}</em>}<b>›</b>
-                  </button>
-                )}
+                <div className="operations-list-card">
+                  <h3>Prevádzka</h3>
+                  <button onClick={()=>openInbox("maintenance")}><span>⚙️</span><strong>Údržba a technológia</strong>{countFor("maintenance")>0&&<em>{countFor("maintenance")}</em>}<b>›</b></button>
+                  <button onClick={()=>openInbox(activeRole)}><span>👥</span><strong>Adresované {activeRole==="maintenance_manager"?"vedúcim":"riaditeľovi"}</strong>{countFor(activeRole)>0&&<em>{countFor(activeRole)}</em>}<b>›</b></button>
+                  <button onClick={()=>openInbox("lifeguard")}><span>🛟</span><strong>Plavčíci</strong>{countFor("lifeguard")>0&&<em>{countFor("lifeguard")}</em>}<b>›</b></button>
+                  <button onClick={()=>openInbox("sanitation")}><span>✨</span><strong>Sanita</strong>{countFor("sanitation")>0&&<em>{countFor("sanitation")}</em>}<b>›</b></button>
+                  <button onClick={()=>void openPumps()}><span>⚙️</span><strong>Čerpadlá</strong>{pumpRepairCount>0&&<em>{pumpRepairCount}</em>}<b>›</b></button>
+                </div>
 
-                {(activeRole === "maintenance_manager" || activeRole === "operations_manager") && (<>
-                  <button className="portal-tile role-maintenance" onClick={() => openInbox("maintenance")}><span className="tile-icon">🔧</span><div><strong>Údržba a technológia</strong><small>Otvorené úlohy</small></div>{countFor("maintenance") > 0 && <em>{countFor("maintenance")}</em>}<b>›</b></button>
-                  <button className="portal-tile role-lifeguard" onClick={() => openInbox("lifeguard")}><span className="tile-icon">🏊</span><div><strong>Plavčíci</strong><small>Otvorené úlohy</small></div>{countFor("lifeguard") > 0 && <em>{countFor("lifeguard")}</em>}<b>›</b></button>
-                  <button className="portal-tile role-sanitation" onClick={() => openInbox("sanitation")}><span className="tile-icon">✨</span><div><strong>Sanita</strong><small>Čistota a hygiena areálu</small></div>{countFor("sanitation") > 0 && <em>{countFor("sanitation")}</em>}<b>›</b></button>
-                  <button className={`portal-tile ${info.colorClass}`} onClick={() => openInbox(activeRole)}><span className="tile-icon">👤</span><div><strong>Adresované {activeRole === "maintenance_manager" ? "vedúcim" : "manažérovi"}</strong><small>Úlohy čakajúce na rozhodnutie</small></div>{countFor(activeRole) > 0 && <em>{countFor(activeRole)}</em>}<b>›</b></button>
-                </>)}
-
-                {(activeRole === "maintenance" || activeRole === "maintenance_manager") && (
-                  <button className="portal-tile tile-pumps" onClick={() => void openPumps()}>
-                    <span className="tile-icon">⚙️</span><div><strong>Čerpadlá</strong><small>{pumpRepairCount} v oprave • {pumpStockCount} na sklade</small></div>{pumpRepairCount > 0 && <em>{pumpRepairCount}</em>}<b>›</b>
-                  </button>
-                )}
-              </div>
-
-              <div className="portal-secondary-grid">
-                <button onClick={() => openAlerts(activeRole === "maintenance_manager" || activeRole === "operations_manager" ? "management" : "maintenance", activeRole === "maintenance_manager" || activeRole === "operations_manager")}><span>⚠️</span><strong>Upozornenia a odstávky</strong></button>
-                {activeRole === "maintenance" && <button onClick={() => { setMessagesPanelRole("maintenance"); void loadMessages("maintenance"); }}><span>💬</span><strong>Správy vedúcemu</strong></button>}
-                {activeRole === "maintenance_manager" && <button onClick={() => { setMessagesPanelRole("manager"); void loadMessages("manager"); }}><span>💬</span><strong>Správy z údržby</strong></button>}
-                {activeRole === "maintenance" && <button onClick={() => setScreen("maintenance-dashboard")}><span>🧰</span><strong>Detailný pracovný prehľad</strong></button>}
-                {activeRole === "maintenance_manager" && <button onClick={() => setScreen("manager-dashboard")}><span>📊</span><strong>Kompletný prehľad a štatistiky</strong></button>}
-                {activeRole === "operations_manager" && <button onClick={() => setScreen("operations-dashboard")}><span>📊</span><strong>Kompletný prehľad a štatistiky</strong></button>}
-              </div>
+                <div className="manager-bottom-grid">
+                  <button onClick={()=>{void loadPurchases("mine");void loadManagementTasks();setScreen("staff-my-reports");}}><span>📋</span><strong>Moje zadané úlohy a nákupy</strong></button>
+                  <button onClick={()=>openAlerts("management",true)}><span>⚠️</span><strong>Upozornenia a odstávky</strong></button>
+                  {activeRole==="maintenance_manager"&&<button onClick={()=>{setMessagesPanelRole("manager");void loadMessages("manager");}}><span>💬</span><strong>Správy z údržby</strong></button>}
+                  <button onClick={()=>setScreen(activeRole==="maintenance_manager"?"manager-dashboard":"operations-dashboard")}><span>▦</span><strong>Kompletný prehľad</strong></button>
+                  <button onClick={()=>{void loadWorkerStats();setScreen(activeRole==="maintenance_manager"?"manager-statistics":"operations-statistics");}}><span>📊</span><strong>Štatistiky</strong></button>
+                  <button onClick={()=>setScreen(activeRole==="maintenance_manager"?"manager-history":"operations-history")}><span>↻</span><strong>História</strong></button>
+                </div>
+              </>) : (<>
+                <div className="portal-grid">
+                  <button className="portal-tile tile-report" onClick={openNewReportForStaff}><span className="tile-icon">＋</span><div><strong>Nahlásiť závadu</strong><small>Adresovať ktorémukoľvek stredisku</small></div><b>›</b></button>
+                  <button className="portal-tile tile-my" onClick={()=>{void loadPurchases("mine"); if(["maintenance_manager","operations_manager"].includes(activeRole)) void loadManagementTasks(); setScreen("staff-my-reports");}}><span className="tile-icon">📋</span><div><strong>Moje zadané úlohy a nákupy</strong><small>Moje hlásenia a nákupné požiadavky</small></div>{myOpen>0&&<em>{myOpen}</em>}<b>›</b></button>
+                  <button className={`portal-tile ${info.colorClass}`} onClick={()=>openInbox(activeRole)}><span className="tile-icon">{info.icon}</span><div><strong>Závady adresované nám</strong><small>{info.label}</small></div>{countFor(activeRole)>0&&<em>{countFor(activeRole)}</em>}<b>›</b></button>
+                  <button className="portal-tile tile-purchase" onClick={()=>{void loadPurchases("mine");setScreen("purchase-request");}}><span className="tile-icon">🛒</span><div><strong>Požiadavka na nákup</strong><small>Vytvoriť alebo sledovať požiadavku</small></div><b>›</b></button>
+                  {activeRole==="maintenance"&&<button className="portal-tile tile-pumps" onClick={()=>void openPumps()}><span className="tile-icon">⚙️</span><div><strong>Čerpadlá</strong><small>{pumpRepairCount} v oprave • {pumpStockCount} na sklade</small></div>{pumpRepairCount>0&&<em>{pumpRepairCount}</em>}<b>›</b></button>}
+                </div>
+                <div className="portal-secondary-grid"><button onClick={()=>openAlerts("maintenance",false)}><span>⚠️</span><strong>Upozornenia a odstávky</strong></button>{activeRole==="maintenance"&&<button onClick={()=>{setMessagesPanelRole("maintenance");void loadMessages("maintenance");}}><span>💬</span><strong>Správy vedúcemu</strong></button>}{activeRole==="maintenance"&&<button onClick={()=>setScreen("maintenance-dashboard")}><span>🧰</span><strong>Detailný pracovný prehľad</strong></button>}</div>
+              </>)}
             </div>
           </section>
         </main>
@@ -4745,7 +5051,7 @@ function App() {
       staffStatusFilter === "open" ? issue.status !== "closed" :
       issue.status === staffStatusFilter
     );
-    const title = isMyReports ? "Mnou hlásené závady" : `Závady – ${ROLE_INFO[staffInboxRole].label}`;
+    const title = isMyReports ? "Moje zadané úlohy a nákupy" : `Závady – ${ROLE_INFO[staffInboxRole].label}`;
     return (
       <>
         <main className="app-shell new-ui-shell">
@@ -4753,7 +5059,7 @@ function App() {
             <div className="new-page-header">
               <button onClick={() => setScreen("staff-portal")}>←</button>
               <div><small>{ROLE_INFO[activeRole].label}</small><h1>{title}</h1></div>
-              <span>{visibleIssues.length}</span>
+              {isMyReports ? <button className="header-add-button" onClick={()=>setScreen("purchase-request")}>＋ Nákup</button> : <span>{visibleIssues.length}</span>}
             </div>
             <div className="status-chip-row">
               {[
@@ -4773,6 +5079,10 @@ function App() {
                 </button>
               ))}
             </div>
+            {isMyReports && (<>
+              <div className="my-combined-section"><h3>Moje nákupné požiadavky</h3>{purchases.length===0?<div className="new-empty-state">Zatiaľ nemáte nákupnú požiadavku.</div>:purchases.map(p=><div key={p.id} className="purchase-status-row"><div><strong>{p.item_name}</strong><small>{p.quantity||""} • {formatDate(p.created_at)}</small></div><span className={`purchase-status ${p.status}`}>{purchaseStatusLabel(p.status)}</span></div>)}</div>
+              {(["maintenance_manager","operations_manager"].includes(activeRole)) && <div className="my-combined-section"><h3>Moje úlohy</h3>{managementTasks.filter(t=>t.owner_name?.toLowerCase()===activeStaffName.toLowerCase()||t.created_by_name?.toLowerCase()===activeStaffName.toLowerCase()).map(t=><button key={t.id} className="compact-history-row" onClick={()=>void openManagementTask(t)}>{t.title}<small>{t.owner_name?`Rieši: ${t.owner_name}`:"Nepridelené"} • {managementTaskStatusLabel(t.status)}</small></button>)}</div>}
+            </>)}
           </section>
         </main>
         {globalWindows}
@@ -4782,7 +5092,7 @@ function App() {
 
   if (screen === "staff-issue" && selectedIssue && activeRole) {
     const destination = (selectedIssue.destination_role || "maintenance") as AuthRole;
-    const canEdit = destination === activeRole && selectedIssue.status !== "closed";
+    const canEdit = (destination === activeRole || activeRole === "maintenance_manager") && selectedIssue.status !== "closed";
     const assignee = selectedIssue.assignee_name || selectedIssue.current_worker_name;
     const isMine = assignee?.toLowerCase() === activeStaffName.toLowerCase();
     const rootPhotos = selectedIssue.photo_keys?.length ? selectedIssue.photo_keys : selectedIssue.photo_key ? [selectedIssue.photo_key] : [];
@@ -4817,7 +5127,7 @@ function App() {
                 <div className="new-action-panel">
                   <div className="new-action-panel-head"><strong>{staffIssueAction === "transfer" ? "Posunúť závadu" : staffIssueAction === "close" ? "Vyriešiť závadu" : staffIssueAction === "material" ? "Čaká na materiál" : staffIssueAction === "reopen" ? "Znovu otvoriť" : "Doplniť komentár"}</strong><button onClick={() => { setStaffIssueAction(null); setStaffActionComment(""); setStaffActionPhotos([]); }}>×</button></div>
                   {(staffIssueAction === "transfer" || staffIssueAction === "reopen") && <label className="new-field-label">Adresovať komu<select value={staffTransferRole} onChange={(e) => setStaffTransferRole(e.target.value as AuthRole)}>{DESTINATION_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_INFO[role].label}</option>)}</select></label>}
-                  <label className="new-field-label">Komentár <span>(voliteľný)</span><textarea rows={3} value={staffActionComment} onChange={(e) => setStaffActionComment(e.target.value)} placeholder="Doplňte informáciu k tejto akcii…" /></label>
+                  <label className="new-field-label">Komentár <span>(voliteľný)</span><div className="voice-field-row"><textarea rows={3} value={staffActionComment} onChange={(e) => setStaffActionComment(e.target.value)} placeholder="Doplňte informáciu k tejto akcii…" /><button type="button" className="voice-button" onClick={()=>startVoiceDictation(setStaffActionComment,staffActionComment)}>🎤</button></div></label>
                   <MultiPhotoChoice files={staffActionPhotos} onChange={setStaffActionPhotos} title="Fotografie k akcii" max={3} />
                   <button className="new-primary-button" disabled={actionLoading} onClick={() => void performStaffIssueAction(staffIssueAction)}>{actionLoading ? "Ukladám…" : "Potvrdiť"}</button>
                 </div>
@@ -4844,7 +5154,7 @@ function App() {
     return (
       <>
         <main className="app-shell new-ui-shell"><section className="app-card list-page-card">
-          <div className="new-page-header"><button onClick={() => setScreen("staff-portal")}>←</button><div><small>ÚDRŽBA A TECHNOLÓGIA</small><h1>Čerpadlá</h1></div><button className="header-add-button" onClick={() => setScreen("pump-new")}>＋</button></div>
+          <div className="new-page-header"><button onClick={() => setScreen("staff-portal")}>←</button><div><small>ÚDRŽBA A TECHNOLÓGIA</small><h1>Čerpadlá</h1></div>{activeRole!=="operations_manager" ? <button className="header-add-button" onClick={() => setScreen("pump-new")}>＋</button> : <span />}</div>
           <div className="pump-summary-grid"><div><strong>{counts("repair")}</strong><span>V oprave</span></div><div><strong>{counts("stock")}</strong><span>Na sklade</span></div><div><strong>{counts("install")}</strong><span>Na montáž</span></div></div>
           <div className="status-chip-row pump-chips">{[["all","Všetky"],["broken","Pokazené"],["repair","V oprave"],["stock","Na sklade"],["install","Na montáž"],["installed","Namontované"]].map(([value,label]) => <button key={value} className={pumpFilter === value ? "active" : ""} onClick={() => setPumpFilter(value)}>{label}</button>)}</div>
           <div className="new-issue-list">{visiblePumps.length === 0 ? <div className="new-empty-state">Žiadne čerpadlá v tejto kategórii.</div> : visiblePumps.map((pump) => <button className="pump-row" key={pump.id} onClick={() => void openPump(pump)}><span className="pump-icon">⚙️</span><div><strong>{pump.pump_name || `Čerpadlo #${pump.id}`}</strong><p>{pump.location || "Miesto neuvedené"}{pump.power_kw ? ` • ${pump.power_kw} kW` : ""}</p><small>{pump.description || "Bez popisu"}</small></div><em>{pump.status === "repair" ? "V oprave" : pump.status === "stock" ? "Na sklade" : pump.status === "install" ? "Na montáž" : pump.status === "installed" ? "Funkčné" : "Pokazené"}</em><b>›</b></button>)}</div>
@@ -4865,7 +5175,7 @@ function App() {
   if (screen === "operations-login") {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card login-card operations-login-card">
             <div className="top-bar">
               <button className="back-button" onClick={() => setScreen("home")}>
@@ -4874,7 +5184,7 @@ function App() {
               <img src={tatralandiaLogo} alt="Tatralandia" className="small-logo" />
             </div>
             <div className="operations-login-icon">📊</div>
-            <div className="section-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="section-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <h1>Prihlásenie manažéra</h1>
             <p className="subtitle">
               Kompletný prehľad závad, rozhodovanie, história a štatistika.
@@ -4912,7 +5222,7 @@ function App() {
   }
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - DETAIL ZÁVADY
+     PREVÁDZKOVÝ RIADITEĽ - DETAIL ZÁVADY
      ========================================================= */
 
   if (screen === "operations-issue" && selectedIssue) {
@@ -4941,7 +5251,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card issue-detail-card operations-detail-card">
             <div className="top-bar">
               <button
@@ -4952,7 +5262,7 @@ function App() {
               </button>
               <img src={tatralandiaLogo} alt="Tatralandia" className="small-logo" />
             </div>
-            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <div className="issue-detail-number">
               ZÁVADA #{String(selectedIssue.id).padStart(4, "0")}
             </div>
@@ -5155,13 +5465,13 @@ function App() {
   }
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - NOVÁ ÚLOHA
+     PREVÁDZKOVÝ RIADITEĽ - NOVÁ ÚLOHA
      ========================================================= */
 
   if (screen === "operations-new-task") {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card report-card operations-task-card">
             <div className="top-bar">
               <button className="back-button" onClick={() => setScreen("operations-dashboard")}>
@@ -5169,7 +5479,7 @@ function App() {
               </button>
               <img src={tatralandiaLogo} alt="Tatralandia" className="small-logo" />
             </div>
-            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <h1>Nová úloha pre vedúceho</h1>
             <p className="subtitle">
               Úloha sa odošle vedúcemu údržby. Ten ju môže ďalej vrátiť do údržby.
@@ -5212,19 +5522,19 @@ function App() {
   }
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - NA ROZHODNUTIE
+     PREVÁDZKOVÝ RIADITEĽ - NA ROZHODNUTIE
      ========================================================= */
 
   if (screen === "operations-decision") {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
             </div>
-            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <div className="history-header">
               <div>
                 <div className="section-label">ESKALOVANÉ ZÁVADY</div>
@@ -5276,19 +5586,19 @@ function App() {
   }
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - HISTÓRIA
+     PREVÁDZKOVÝ RIADITEĽ - HISTÓRIA
      ========================================================= */
 
   if (screen === "operations-history") {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
             </div>
-            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <div className="history-header">
               <div><div className="section-label">ARCHÍV</div><h1>História</h1></div>
               <div className="history-count">{closedCount}</div>
@@ -5342,7 +5652,7 @@ function App() {
   }
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - ŠTATISTIKA
+     PREVÁDZKOVÝ RIADITEĽ - ŠTATISTIKA
      ========================================================= */
 
   if (screen === "operations-statistics") {
@@ -5352,7 +5662,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <button
@@ -5364,10 +5674,10 @@ function App() {
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
             </div>
-            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <div className="dashboard-title-row">
               <div><div className="section-label">VÝKON A TRENDY</div><h1>Štatistika</h1></div>
-              <button className="notification-bell" onClick={() => Promise.all([loadIssues(), loadRatings()])}>↻</button>
+              <button className="notification-bell" onClick={() => Promise.all([loadIssues(), loadRatings(), loadWorkerStats()])}>↻</button>
             </div>
 
             <div className="operations-kpi-grid">
@@ -5417,6 +5727,25 @@ function App() {
                 </div>
               )}
             </div>
+            <div className="operations-stats-panel">
+              <div className="operations-panel-title">VÝKON PODĽA PRACOVNÍKA</div>
+              {workerStats.length === 0 ? (
+                <div className="communication-empty">Zatiaľ nie sú dáta o pracovníkoch.</div>
+              ) : (
+                <div className="worker-stats-table">
+                  <div className="worker-stats-head"><span>Meno</span><span>Prevzal</span><span>Uzavrel</span><span>Priemer</span></div>
+                  {workerStats.map((worker) => (
+                    <div className="worker-stats-row" key={worker.actor_name}>
+                      <strong>{worker.actor_name}</strong>
+                      <span>{Number(worker.taken_count || 0)}</span>
+                      <span>{Number(worker.resolved_count || 0)}</span>
+                      <span>{worker.avg_hours == null ? "—" : `${Number(worker.avg_hours).toFixed(1)} h`}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {operationsBottomNav("statistics")}
           </section>
         </main>
@@ -5426,7 +5755,7 @@ function App() {
   }
 
   /* =========================================================
-     PREVÁDZKOVÝ MANAŽÉR - PREHĽAD
+     PREVÁDZKOVÝ RIADITEĽ - PREHĽAD
      ========================================================= */
 
   if (screen === "operations-dashboard") {
@@ -5443,7 +5772,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <button
@@ -5455,7 +5784,7 @@ function App() {
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
               <button className="logout-button" onClick={logoutOperations}>Odhlásiť</button>
             </div>
-            <div className="operations-role-badge">PREVÁDZKOVÝ MANAŽÉR</div>
+            <div className="operations-role-badge">PREVÁDZKOVÝ RIADITEĽ</div>
             <div className="welcome-block operations-welcome">
               <div><span>PRIHLÁSENÝ MANAŽÉR</span><h2>{loggedOperationsName}</h2></div>
               <div className="worker-avatar">📊</div>
@@ -5495,6 +5824,14 @@ function App() {
                 placeholder="Hľadať podľa popisu, miesta, mena alebo komentára..."
               />
               {operationsSearch && <button onClick={() => setOperationsSearch("")}>×</button>}
+            </div>
+
+            <div className="operations-filter-block worker-filter-block">
+              <div className="operations-filter-title">PRACOVNÍK</div>
+              <div className="worker-filter-grid">
+                <label>Prevzal<select value={workerTakenFilterName} onChange={(e)=>setWorkerTakenFilterName(e.target.value)}><option value="">Všetci</option>{STAFF_DIRECTORY.maintenance.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+                <label>Uzavrel<select value={workerClosedFilterName} onChange={(e)=>setWorkerClosedFilterName(e.target.value)}><option value="">Všetci</option>{STAFF_DIRECTORY.maintenance.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+              </div>
             </div>
 
             <div className="operations-filter-block">
@@ -5584,7 +5921,7 @@ function App() {
   if (screen === "operations-history-detail") {
     return renderHistoryDetail(
       "operations-history",
-      "PREVÁDZKOVÝ MANAŽÉR"
+      "PREVÁDZKOVÝ RIADITEĽ"
     );
   }
 
@@ -5626,7 +5963,7 @@ function App() {
   ) {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card">
 
             <div className="dashboard-header">
@@ -5803,7 +6140,7 @@ function App() {
   if (screen === "manager-decision") {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <img src={tatralandiaLogo} alt="Tatralandia" className="dashboard-logo" />
@@ -5836,12 +6173,7 @@ function App() {
                   <button
                     key={issue.id}
                     className="issue-card-new operations-decision-card"
-                    onClick={async () => {
-                      setSelectedIssue(issue);
-                      setIssueEvents([]);
-                      setScreen("manager-issue");
-                      await loadIssueEvents(issue.id);
-                    }}
+                    onClick={() => void openStaffIssue(issue)}
                   >
                     <div className="issue-main">
                       <div className="issue-top">
@@ -5888,7 +6220,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <button
@@ -5910,7 +6242,7 @@ function App() {
               </div>
               <button
                 className="notification-bell"
-                onClick={() => Promise.all([loadIssues(), loadRatings()])}
+                onClick={() => Promise.all([loadIssues(), loadRatings(), loadWorkerStats()])}
               >
                 ↻
               </button>
@@ -5965,6 +6297,25 @@ function App() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+
+            <div className="operations-stats-panel">
+              <div className="operations-panel-title">VÝKON PODĽA PRACOVNÍKA</div>
+              {workerStats.length === 0 ? (
+                <div className="communication-empty">Zatiaľ nie sú dáta o pracovníkoch.</div>
+              ) : (
+                <div className="worker-stats-table">
+                  <div className="worker-stats-head"><span>Meno</span><span>Prevzal</span><span>Uzavrel</span><span>Priemer</span></div>
+                  {workerStats.map((worker) => (
+                    <div className="worker-stats-row" key={worker.actor_name}>
+                      <strong>{worker.actor_name}</strong>
+                      <span>{Number(worker.taken_count || 0)}</span>
+                      <span>{Number(worker.resolved_count || 0)}</span>
+                      <span>{worker.avg_hours == null ? "—" : `${Number(worker.avg_hours).toFixed(1)} h`}</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -6027,7 +6378,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
 
           <section className="app-card issue-detail-card">
 
@@ -6214,7 +6565,7 @@ function App() {
 
                     <div>
                       <strong>
-                        Prevádzkový manažér
+                        Prevádzkový riaditeľ
                       </strong>
 
                       <small>
@@ -6420,7 +6771,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
           <section className="app-card dashboard-card operations-dashboard-card">
             <div className="dashboard-header">
               <button
@@ -6534,12 +6885,7 @@ function App() {
                     <button
                       className="issue-card-new operations-issue-card"
                       key={issue.id}
-                      onClick={async () => {
-                        setSelectedIssue(issue);
-                        setIssueEvents([]);
-                        setScreen("manager-issue");
-                        await loadIssueEvents(issue.id);
-                      }}
+                      onClick={() => void openStaffIssue(issue)}
                     >
                       <div className="issue-main">
                         <div className="issue-top">
@@ -6583,7 +6929,7 @@ function App() {
   ) {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
 
           <section className="app-card login-card">
 
@@ -6690,7 +7036,7 @@ function App() {
   ) {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
 
           <section className="app-card dashboard-card">
 
@@ -6909,7 +7255,7 @@ function App() {
 
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
 
           <section className="app-card issue-detail-card">
 
@@ -7153,7 +7499,7 @@ function App() {
   ) {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
 
           <section className="app-card dashboard-card">
 
@@ -7419,7 +7765,7 @@ function App() {
   ) {
     return (
       <>
-        <main className="app-shell">
+        <main className="app-shell new-ui-shell legacy-modernized-shell">
 
           <section className="app-card login-card">
 
@@ -7535,6 +7881,7 @@ function App() {
               <div className="new-hero-copy"><small>NOVÉ HLÁSENIE</small><h1>Nahlásiť závadu</h1><p>Vyberte adresáta a doplňte základné informácie.</p></div>
             </div>
 
+            <div className="voice-report-banner"><button type="button" onClick={()=>void runVoiceReportAssistant()}>🎤 Nahlásiť hlasom</button><span>Aplikácia sa vás postupne opýta na miesto, popis a adresáta.</span></div>
             <form className="new-form report-new-form" onSubmit={submitReport}>
               {publicAlerts.length > 0 && (
                 <button type="button" className="report-alert-strip" onClick={() => openAlerts("public", false)}>
@@ -7553,8 +7900,8 @@ function App() {
                   {DESTINATION_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_INFO[role].label}</option>)}
                 </select>
               </label>
-              <label>Kde sa závada nachádza?<input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Miesto / prevádzka / atrakcia" /></label>
-              <label>Popis závady<textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} placeholder="Čo je pokazené alebo čo treba vyriešiť?" /></label>
+              <label>Kde sa závada nachádza?<div className="voice-field-row"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Miesto / prevádzka / atrakcia" /><button type="button" className="voice-button" onClick={()=>startVoiceDictation(setLocation,location)}>🎤</button></div></label>
+              <label>Popis závady<div className="voice-field-row"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} placeholder="Čo je pokazené alebo čo treba vyriešiť?" /><button type="button" className="voice-button" onClick={()=>startVoiceDictation(setDescription,description)}>🎤</button></div></label>
 
               <MultiPhotoChoice files={reportPhotos} onChange={(files) => { setReportPhotos(files); setPhotoFile(files[0] || null); setPhotoName(files[0]?.name || ""); }} title="Fotografie závady" max={3} />
 
@@ -7607,6 +7954,9 @@ function App() {
               <button className="new-home-tile home-report-tile" onClick={() => { setReporter(""); setReportPhotos([]); setPhotoFile(null); setPhotoName(""); setReportDestinationRole("maintenance"); setReportReturnScreen("home"); setScreen("report"); }}>
                 <span>⚠️</span><div><strong>Nahlásiť závadu</strong><small>Bez prihlásenia</small></div><b>›</b>
               </button>
+              <button className="new-home-tile home-purchase-tile" onClick={() => { setPurchaseRequester(""); setPurchaseItem(""); setPurchaseQuantity(""); setPurchasePrice(""); setPurchaseNote(""); setPurchasePriority("normal"); setPurchasePhoto(null); setScreen("purchase-request"); }}>
+                <span>🛒</span><div><strong>Požiadavka na nákup</strong><small>Bez prihlásenia</small></div><b>›</b>
+              </button>
               <button className="new-home-tile home-maintenance-tile" onClick={() => openRoleLogin("maintenance")}>
                 <span>🔧</span><div><strong>Údržba a technológia</strong><small>Prihlásenie zamestnanca</small></div><b>›</b>
               </button>
@@ -7614,7 +7964,7 @@ function App() {
                 <span>🛠️</span><div><strong>Vedúci Údržby a technológie</strong><small>Riadenie a rozhodovanie</small></div><b>›</b>
               </button>
               <button className="new-home-tile home-operations-tile" onClick={() => openRoleLogin("operations_manager")}>
-                <span>📊</span><div><strong>Prevádzkový manažér</strong><small>Kompletný prehľad</small></div><b>›</b>
+                <span>📊</span><div><strong>Prevádzkový riaditeľ</strong><small>Kompletný prehľad</small></div><b>›</b>
               </button>
               <button className="new-home-tile home-lifeguard-tile" onClick={() => openRoleLogin("lifeguard")}>
                 <span>🏊</span><div><strong>Plavčíci</strong><small>Prihlásenie plavčíka</small></div><b>›</b>
@@ -7626,6 +7976,7 @@ function App() {
 
             <div className="new-home-secondary">
               <button onClick={() => openAlerts("public", false)}><span>⚠</span><div><strong>Upozornenia a odstávky</strong><small>{publicAlerts.length > 0 ? `${publicAlerts.length} aktuálne` : "Bez aktuálnych obmedzení"}</small></div>{publicAlerts.length > 0 && <em>{publicAlerts.length}</em>}<b>›</b></button>
+              <button onClick={() => setScreen("shopping-login")}><span>🧾</span><div><strong>Nákupný zoznam</strong><small>Vstup cez spoločný PIN</small></div><b>›</b></button>
               {offlineDrafts.length > 0 && <button onClick={() => setDraftsPanelOpen(true)}><span>📴</span><div><strong>Offline koncepty</strong><small>{offlineDrafts.length} čaká na odoslanie</small></div><em>{offlineDrafts.length}</em><b>›</b></button>}
             </div>
             <div className="new-home-footer">Tatralandia • interný prevádzkový systém <span>v{APP_VERSION}</span></div>
