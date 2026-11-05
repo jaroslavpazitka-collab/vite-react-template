@@ -44,7 +44,9 @@ type Screen =
   | "purchase-request"
   | "purchase-approval"
   | "shopping-login"
-  | "shopping-list";
+  | "shopping-list"
+  | "night-work"
+  | "night-work-detail";
 
 type MaintenanceFilter =
   | "new"
@@ -102,6 +104,8 @@ type Issue = {
   event_text?: string;
   rating_up_count?: number;
   rating_down_count?: number;
+  taken_by_names?: string;
+  closed_by_name?: string;
 };
 
 type IssueEvent = {
@@ -247,8 +251,29 @@ type ManagementTaskComment = { id:number; task_id:number; author_role:string; au
 type ReminderItem = { id:number; title:string; due_date:string; due_time:string|null; source_note_id:number|null; created_by_name:string; created_at:string; };
 type PurchaseRequest = { id:number; requester_name:string; requester_role:string|null; item_name:string; quantity:string|null; price:string|null; price_kind:string|null; note:string|null; priority:string; photo_key:string|null; status:string; rejection_reason:string|null; approved_by_name:string|null; approved_at:string|null; purchased_at:string|null; created_at:string; updated_at:string; };
 type WorkerStat = { actor_name:string; taken_count:number; resolved_count:number; avg_hours:number|null; };
+type NightWorkItem = {
+  id:number;
+  shift_date:string;
+  kind:string;
+  source_issue_id:number|null;
+  source_task_id:number|null;
+  title:string;
+  description:string|null;
+  photo_key:string|null;
+  status:string;
+  created_by_role:string;
+  created_by_name:string;
+  completed_by_role:string|null;
+  completed_by_name:string|null;
+  completion_comment:string|null;
+  completion_photo_key:string|null;
+  created_at:string;
+  updated_at:string;
+  completed_at:string|null;
+  expired_at:string|null;
+};
 
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 
 const STAFF_DIRECTORY: Record<AuthRole, string[]> = {
   maintenance: [
@@ -845,12 +870,29 @@ function App() {
   const [purchaseNote, setPurchaseNote] = useState("");
   const [purchasePriority, setPurchasePriority] = useState("normal");
   const [purchasePhoto, setPurchasePhoto] = useState<File | null>(null);
+  const [purchaseSourceIssueId, setPurchaseSourceIssueId] = useState<number | null>(null);
+  const [purchaseSourceTaskId, setPurchaseSourceTaskId] = useState<number | null>(null);
   const [shoppingPin, setShoppingPin] = useState("");
   const [shoppingItems, setShoppingItems] = useState<PurchaseRequest[]>([]);
   const [shoppingHistory, setShoppingHistory] = useState<PurchaseRequest[]>([]);
   const [workerStats, setWorkerStats] = useState<WorkerStat[]>([]);
   const [workerTakenFilterName, setWorkerTakenFilterName] = useState("");
   const [workerClosedFilterName, setWorkerClosedFilterName] = useState("");
+
+  // v1.8.0 – práce na nočnú
+  const [nightWorkActive, setNightWorkActive] = useState<NightWorkItem[]>([]);
+  const [nightWorkPlanned, setNightWorkPlanned] = useState<NightWorkItem[]>([]);
+  const [nightWorkHistory, setNightWorkHistory] = useState<NightWorkItem[]>([]);
+  const [selectedNightWork, setSelectedNightWork] = useState<NightWorkItem | null>(null);
+  const [nightNewDate, setNightNewDate] = useState("");
+  const [nightNewKind, setNightNewKind] = useState<"task"|"note">("task");
+  const [nightNewTitle, setNightNewTitle] = useState("");
+  const [nightNewDescription, setNightNewDescription] = useState("");
+  const [nightNewPhoto, setNightNewPhoto] = useState<File | null>(null);
+  const [nightCompletionComment, setNightCompletionComment] = useState("");
+  const [nightCompletionPhoto, setNightCompletionPhoto] = useState<File | null>(null);
+  const [nightAssignTarget, setNightAssignTarget] = useState<{kind:"issue"|"task";id:number;label:string}|null>(null);
+  const [nightAssignDate, setNightAssignDate] = useState("");
 
   /* =========================================================
      AKCIE ÚDRŽBÁRA
@@ -1017,6 +1059,12 @@ function App() {
 
       return file;
     }
+  };
+
+  const appendCompressedPhoto = async (formData: FormData, field: string, file: File | null) => {
+    if (!file) return;
+    const compressed = await compressImageForUpload(file);
+    formData.append(field, compressed, compressed.name);
   };
 
   /* =========================================================
@@ -1450,15 +1498,18 @@ function App() {
       if (!ok) return;
       if (role === "maintenance" || role === "maintenance_manager") void loadPumps();
       if (role === "maintenance") {
+        void loadNightWork(role);
         setMaintenanceFilter("new");
         void loadAlerts("maintenance", false);
         window.setTimeout(() => void loadMessages("maintenance"), 0);
       } else if (role === "maintenance_manager") {
+        void loadNightWork(role);
         setManagerStatusFilter("all");
         void loadAlerts("management", true);
         window.setTimeout(() => void loadMessages("manager"), 0);
         void loadHandover(); void loadManagementTasks(); void loadReminders(); void loadPurchases("mine"); void loadWorkerStats();
       } else if (role === "operations_manager") {
+        void loadNightWork(role);
         await loadRatings();
         setOperationsStatusFilter("all");
         void loadAlerts("management", true);
@@ -1803,15 +1854,18 @@ function App() {
       if (!ok) return;
       if (session.role === "maintenance" || session.role === "maintenance_manager") void loadPumps();
       if (session.role === "maintenance") {
+        void loadNightWork(session.role);
         setMaintenanceFilter("new");
         void loadAlerts("maintenance", false);
         window.setTimeout(() => void loadMessages("maintenance"), 0);
       } else if (session.role === "maintenance_manager") {
+        void loadNightWork(session.role);
         setManagerStatusFilter("all");
         void loadAlerts("management", true);
         window.setTimeout(() => void loadMessages("manager"), 0);
         void loadHandover(); void loadManagementTasks(); void loadReminders(); void loadPurchases("mine"); void loadWorkerStats();
       } else if (session.role === "operations_manager") {
+        void loadNightWork(session.role);
         await loadRatings();
         setOperationsStatusFilter("all");
         void loadAlerts("management", true);
@@ -1989,9 +2043,13 @@ function App() {
       setSelectedIssue((prev) => prev ? { ...prev, ...updated } : updated);
       await loadIssueEvents(selectedIssue.id);
       setStaffIssueAction(null);
+      const materialText=staffActionComment.trim();
       setStaffActionComment("");
       setStaffActionPhotos([]);
       showModal("success", "Akcia uložená", action === "close" ? "Závada bola uzavretá." : action === "transfer" ? "Závada bola posunutá ďalej." : "Zmena bola zapísaná do histórie.");
+      if(action==="material" && window.confirm("Vytvoriť z tejto požiadavky na materiál aj nákupnú požiadavku?")){
+        openPurchaseRequest({issue:selectedIssue,materialText});
+      }
     } catch (error) {
       showModal("error", "Akciu sa nepodarilo uložiť", error instanceof Error ? error.message : "Skúste to znova.");
     } finally {
@@ -3144,6 +3202,21 @@ function App() {
       case "material_requested":
         return "Požiadavka na materiál";
 
+      case "purchase_requested":
+        return "Vytvorená nákupná požiadavka";
+
+      case "material_purchased":
+        return "Materiál nakúpený";
+
+      case "night_scheduled":
+        return "Zaradené na nočnú";
+
+      case "night_resolved":
+        return "Vyriešené počas nočnej";
+
+      case "night_not_completed":
+        return "Nočná úloha nesplnená";
+
       case "escalated_to_manager":
         return "Posunuté vedúcemu";
 
@@ -3203,7 +3276,14 @@ function App() {
         return "✅";
 
       case "material_requested":
+      case "purchase_requested":
+      case "material_purchased":
         return "📦";
+
+      case "night_scheduled":
+      case "night_resolved":
+      case "night_not_completed":
+        return "🌙";
 
       case "escalated_to_manager":
       case "escalated_to_operations":
@@ -3438,8 +3518,8 @@ function App() {
     if (!matchesIssueSearch(issue, managerSearch)) return false;
     if (managerAgeFilter > 0 && daysSince(issue.created_at) < managerAgeFilter) return false;
     if (managerStaleFilter > 0 && daysSince(issue.updated_at) < managerStaleFilter) return false;
-    if (workerTakenFilterName && String(issue.assignee_name || issue.current_worker_name || "").toLowerCase() !== workerTakenFilterName.toLowerCase()) return false;
-    if (workerClosedFilterName && String(issue.last_actor_name || "").toLowerCase() !== workerClosedFilterName.toLowerCase()) return false;
+    if (workerTakenFilterName && !String(issue.taken_by_names || "").split(",").some((name)=>name.trim().toLowerCase()===workerTakenFilterName.toLowerCase())) return false;
+    if (workerClosedFilterName && String(issue.closed_by_name || "").toLowerCase() !== workerClosedFilterName.toLowerCase()) return false;
     return true;
   });
 
@@ -3460,6 +3540,8 @@ function App() {
     if (!matchesIssueSearch(issue, operationsSearch)) return false;
     if (operationsAgeFilter > 0 && daysSince(issue.created_at) < operationsAgeFilter) return false;
     if (operationsStaleFilter > 0 && daysSince(issue.updated_at) < operationsStaleFilter) return false;
+    if (workerTakenFilterName && !String(issue.taken_by_names || "").split(",").some((name)=>name.trim().toLowerCase()===workerTakenFilterName.toLowerCase())) return false;
+    if (workerClosedFilterName && String(issue.closed_by_name || "").toLowerCase() !== workerClosedFilterName.toLowerCase()) return false;
     return true;
   });
 
@@ -4317,46 +4399,10 @@ function App() {
     recognition.start();
   };
 
-  const speak = (text: string) => {
-    try {
-      if (!("speechSynthesis" in window)) return;
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "sk-SK";
-      window.speechSynthesis.speak(utterance);
-    } catch { /* hlas je len doplnok */ }
-  };
-
-  const recognizeOnce = (prompt: string) => new Promise<string>((resolve, reject) => {
-    const SpeechRecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognitionCtor) { reject(new Error("Tento prehliadač nepodporuje hlasové rozpoznávanie.")); return; }
-    speak(prompt);
-    const recognition = new SpeechRecognitionCtor();
-    recognition.lang = "sk-SK"; recognition.interimResults = false; recognition.maxAlternatives = 1;
-    let started = false;
-    const start = () => { if (started) return; started = true; try { recognition.start(); } catch (e) { reject(e); } };
-    window.setTimeout(start, 900);
-    recognition.onresult = (event:any) => resolve(String(event.results?.[0]?.[0]?.transcript || "").trim());
-    recognition.onerror = () => reject(new Error("Hlas sa nepodarilo rozpoznať."));
-  });
-
-  const runVoiceReportAssistant = async () => {
-    try {
-      const loc = await recognizeOnce("Vitaj. Kde sa závada nachádza?"); if (loc) setLocation(loc);
-      const desc = await recognizeOnce("Čo sa stalo alebo čo je pokazené?"); if (desc) setDescription(desc);
-      const dest = (await recognizeOnce("Komu chceš závadu adresovať? Povedz údržba, plavčíci, sanita, vedúci alebo prevádzkový riaditeľ.")).toLowerCase();
-      if (dest.includes("plav")) setReportDestinationRole("lifeguard");
-      else if (dest.includes("sanit") || dest.includes("čist")) setReportDestinationRole("sanitation");
-      else if (dest.includes("vedúc")) setReportDestinationRole("maintenance_manager");
-      else if (dest.includes("riaditeľ") || dest.includes("manager") || dest.includes("manaž")) setReportDestinationRole("operations_manager");
-      else setReportDestinationRole("maintenance");
-      speak("Údaje som doplnil. Teraz ich skontroluj a ak chceš, pridaj fotografiu. Potom závadu odošli.");
-    } catch (e) { showModal("info", "Hlasový sprievodca", e instanceof Error ? e.message : "Hlasové zadávanie sa nepodarilo."); }
-  };
-
   const managementTaskStatusLabel = (status: string) => ({
     new: "Nové",
     progress: "V riešení",
+    material: "Čaká na materiál",
     quote: "Čaká na ponuku",
     decision: "Čaká na rozhodnutie",
     realization: "Čaká na realizáciu",
@@ -4382,12 +4428,18 @@ function App() {
     if (!handoverText.trim()) return showModal("info", "Odkaz", "Napíšte alebo nadiktujte odkaz.");
     setFeatureLoading(true);
     try {
-      const fd = new FormData(); fd.append("text", handoverText.trim()); fd.append("priority", handoverPriority); if (handoverPhoto) fd.append("photo", handoverPhoto);
+      const fd = new FormData(); fd.append("text", handoverText.trim()); fd.append("priority", handoverPriority); await appendCompressedPhoto(fd,"photo",handoverPhoto);
       const r = await fetchWithRetry("/api/handover", { method:"POST", body:fd }, 15000, 1); const d = await r.json();
       if (!d.success) throw new Error(d.error || "Odkaz sa nepodarilo uložiť.");
       const reminder = parseReminderFromText(handoverText);
-      if (reminder && window.confirm(`V texte som rozpoznal dátum ${reminder.date}${reminder.time ? ` o ${reminder.time}` : ""}. Vytvoriť pripomienku?`)) {
-        await fetchWithRetry("/api/reminders", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ title:handoverText.trim(), due_date:reminder.date, due_time:reminder.time || null, source_note_id:d.id }) }, 10000, 1);
+      if (reminder && window.confirm(`V texte som rozpoznal dátum ${reminder.date}${reminder.time ? ` o ${reminder.time}` : ""}. Vytvoriť spoločnú pripomienku pre všetkých vedúcich a prevádzkového riaditeľa?`)) {
+        const reminderResponse=await fetchWithRetry("/api/reminders", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ title:handoverText.trim(), due_date:reminder.date, due_time:reminder.time || null, source_note_id:d.id }) }, 10000, 1);
+        const reminderData=await reminderResponse.json();
+        if(!reminderResponse.ok||!reminderData.success) {
+          showModal("error","Pripomienka",reminderData.error||"Odkaz sa uložil, ale pripomienku sa nepodarilo vytvoriť.");
+        } else {
+          await loadReminders();
+        }
       }
       setHandoverText(""); setHandoverPriority("normal"); setHandoverPhoto(null); await loadHandover();
     } catch (e) { showModal("error", "Odkaz", e instanceof Error ? e.message : "Odkaz sa nepodarilo uložiť."); } finally { setFeatureLoading(false); }
@@ -4404,7 +4456,7 @@ function App() {
 
   const addHandoverComment = async () => {
     if (!selectedHandover || !handoverComment.trim()) return;
-    const fd=new FormData(); fd.append("text",handoverComment.trim()); if(handoverCommentPhoto) fd.append("photo",handoverCommentPhoto);
+    const fd=new FormData(); fd.append("text",handoverComment.trim()); await appendCompressedPhoto(fd,"photo",handoverCommentPhoto);
     const r=await fetchWithRetry(`/api/handover/${selectedHandover.id}/comments`,{method:"POST",body:fd},15000,1); const d=await r.json(); if(!d.success) return showModal("error","Komentár",d.error||"Nepodarilo sa uložiť.");
     setHandoverComment(""); setHandoverCommentPhoto(null); await openHandover(selectedHandover); await loadHandover();
   };
@@ -4415,7 +4467,7 @@ function App() {
 
   const createManagementTask = async () => {
     if(!managementTaskTitle.trim()) return showModal("info","Úloha","Zadajte názov úlohy.");
-    const fd=new FormData(); fd.append("title",managementTaskTitle.trim()); fd.append("description",managementTaskDescription.trim()); fd.append("priority",managementTaskPriority); if(managementTaskPhoto) fd.append("photo",managementTaskPhoto);
+    const fd=new FormData(); fd.append("title",managementTaskTitle.trim()); fd.append("description",managementTaskDescription.trim()); fd.append("priority",managementTaskPriority); await appendCompressedPhoto(fd,"photo",managementTaskPhoto);
     const r=await fetchWithRetry("/api/management-tasks",{method:"POST",body:fd},15000,1); const d=await r.json(); if(!d.success)return showModal("error","Úloha",d.error||"Nepodarilo sa uložiť.");
     setManagementTaskTitle("");setManagementTaskDescription("");setManagementTaskPriority("normal");setManagementTaskPhoto(null);await loadManagementTasks();
   };
@@ -4425,10 +4477,14 @@ function App() {
   };
 
   const managementTaskAction = async (action:string, status?:string) => {
-    if(!selectedManagementTask)return; const fd=new FormData(); fd.append("action",action); if(status)fd.append("status",status); if(action==="assign")fd.append("owner_name",managementTaskAssignee); if(managementTaskComment.trim())fd.append("message",managementTaskComment.trim()); if(managementTaskPhoto)fd.append("photo",managementTaskPhoto);
+    if(!selectedManagementTask)return; const fd=new FormData(); fd.append("action",action); if(status)fd.append("status",status); if(action==="assign")fd.append("owner_name",managementTaskAssignee); if(managementTaskComment.trim())fd.append("message",managementTaskComment.trim()); await appendCompressedPhoto(fd,"photo",managementTaskPhoto);
     const r=await fetchWithRetry(`/api/management-tasks/${selectedManagementTask.id}/action`,{method:"POST",body:fd},15000,1); const d=await r.json(); if(!d.success)return showModal("error","Úloha",d.error||"Akcia zlyhala.");
+    const materialText=managementTaskComment.trim();
     setManagementTaskComment("");setManagementTaskPhoto(null);const list=await loadManagementTasks(); const refreshed=list.find(x=>x.id===selectedManagementTask.id); if(refreshed)setSelectedManagementTask(refreshed);
     const cr=await fetchWithRetry(`/api/management-tasks/${selectedManagementTask.id}/comments`,undefined,10000,1); const cd=await cr.json(); if(cd.success)setManagementTaskComments(cd.comments||[]);
+    if(action==="status" && status==="material" && window.confirm("Vytvoriť k tejto požiadavke na materiál aj nákupnú požiadavku?")){
+      openPurchaseRequest({task:selectedManagementTask,materialText});
+    }
   };
 
   const loadReminders = async () => { const r=await fetchWithRetry("/api/reminders?scope=today",undefined,10000,1); if(r.status===401)return; const d=await r.json(); if(d.success)setReminders(d.reminders||[]); };
@@ -4441,9 +4497,9 @@ function App() {
   const submitPurchase = async () => {
     if(!activeRole && !purchaseRequester.trim()) return showModal("info","Nákup","Meno žiadateľa je povinné.");
     if(!purchaseItem.trim()) return showModal("info","Nákup","Napíšte, čo treba kúpiť.");
-    const fd=new FormData(); if(!activeRole)fd.append("requester_name",purchaseRequester.trim()); fd.append("item_name",purchaseItem.trim());fd.append("quantity",purchaseQuantity);fd.append("price",purchasePrice);fd.append("price_kind",purchasePriceKind);fd.append("note",purchaseNote);fd.append("priority",purchasePriority);if(purchasePhoto)fd.append("photo",purchasePhoto);
+    const fd=new FormData(); if(!activeRole)fd.append("requester_name",purchaseRequester.trim()); fd.append("item_name",purchaseItem.trim());fd.append("quantity",purchaseQuantity);fd.append("price",purchasePrice);fd.append("price_kind",purchasePriceKind);fd.append("note",purchaseNote);fd.append("priority",purchasePriority);await appendCompressedPhoto(fd,"photo",purchasePhoto);if(purchaseSourceIssueId)fd.append("source_issue_id",String(purchaseSourceIssueId));if(purchaseSourceTaskId)fd.append("source_task_id",String(purchaseSourceTaskId));
     const r=await fetchWithRetry("/api/purchases",{method:"POST",body:fd},15000,1);const d=await r.json();if(!d.success)return showModal("error","Nákup",d.error||"Požiadavka sa nepodarila.");
-    setPurchaseRequester("");setPurchaseItem("");setPurchaseQuantity("");setPurchasePrice("");setPurchaseNote("");setPurchasePriority("normal");setPurchasePhoto(null);showModal("success","Požiadavka odoslaná","Požiadavka bola odoslaná prevádzkovému riaditeľovi.");if(activeRole){await loadPurchases("mine");setScreen("staff-portal");}else setScreen("home");
+    resetPurchaseForm();showModal("success",d.auto_approved?"Pridané do nákupného zoznamu":"Požiadavka odoslaná",d.auto_approved?"Keďže požiadavku zadal Prevádzkový riaditeľ, je automaticky schválená a je už v nákupnom zozname.":"Požiadavka bola odoslaná prevádzkovému riaditeľovi.");if(activeRole){await loadPurchases(activeRole==="operations_manager"?"all":"mine");setScreen("staff-portal");}else setScreen("home");
   };
 
   const purchaseDecision = async (id:number, action:"approve"|"reject"|"in-stock") => {
@@ -4457,17 +4513,217 @@ function App() {
 
   const loadWorkerStats = async () => { const r=await fetchWithRetry("/api/worker-stats",undefined,10000,1);if(r.status===401)return;const d=await r.json();if(d.success)setWorkerStats(d.workers||[]); };
 
+  const localDateValue = () => {
+    const now=new Date();
+    return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,"0")}-${String(now.getDate()).padStart(2,"0")}`;
+  };
+
+  const nightShiftLabel = (isoDate:string) => {
+    const [year,month,day]=isoDate.split("-").map(Number);
+    if(!year||!month||!day) return isoDate;
+    const start=new Date(year,month-1,day);
+    const end=new Date(year,month-1,day+1);
+    const startDay=start.getDate();
+    const endDay=end.getDate();
+    const startMonth=start.getMonth()+1;
+    const endMonth=end.getMonth()+1;
+    return startMonth===endMonth
+      ? `${startDay}./${endDay}. ${startMonth}.`
+      : `${startDay}. ${startMonth}. / ${endDay}. ${endMonth}.`;
+  };
+
+  const resetPurchaseForm = () => {
+    setPurchaseRequester("");
+    setPurchaseItem("");
+    setPurchaseQuantity("");
+    setPurchasePrice("");
+    setPurchasePriceKind("estimated");
+    setPurchaseNote("");
+    setPurchasePriority("normal");
+    setPurchasePhoto(null);
+    setPurchaseSourceIssueId(null);
+    setPurchaseSourceTaskId(null);
+  };
+
+  const openPurchaseRequest = (source?:{issue?:Issue;task?:ManagementTask;materialText?:string}) => {
+    resetPurchaseForm();
+    if(source?.issue){
+      setPurchaseSourceIssueId(source.issue.id);
+      setPurchaseItem((source.materialText||source.issue.description||"").trim());
+      setPurchaseNote(`Prepojené so závadou #${String(source.issue.id).padStart(4,"0")} • ${source.issue.location}`);
+    } else if(source?.task){
+      setPurchaseSourceTaskId(source.task.id);
+      setPurchaseItem((source.materialText||source.task.title||"").trim());
+      setPurchaseNote(`Prepojené s úlohou #${source.task.id} • ${source.task.title}`);
+    }
+    setScreen("purchase-request");
+  };
+
+  const loadNightWork = async (roleOverride?:AuthRole|null) => {
+    const role=roleOverride||activeRole;
+    if(!role || !["maintenance","maintenance_manager","operations_manager"].includes(role)) return;
+    try{
+      const activeResponse=await fetchWithRetry("/api/night-work?scope=active",undefined,10000,1);
+      const activeData=await activeResponse.json();
+      if(activeResponse.ok&&activeData.success) setNightWorkActive(activeData.items||[]);
+      if(["maintenance_manager","operations_manager"].includes(role)){
+        const [plannedResponse,historyResponse]=await Promise.all([
+          fetchWithRetry("/api/night-work?scope=all",undefined,10000,1),
+          fetchWithRetry("/api/night-work?scope=history",undefined,10000,1)
+        ]);
+        const plannedData=await plannedResponse.json();
+        const historyData=await historyResponse.json();
+        if(plannedResponse.ok&&plannedData.success) setNightWorkPlanned(plannedData.items||[]);
+        if(historyResponse.ok&&historyData.success) setNightWorkHistory(historyData.items||[]);
+      }
+    }catch(error){
+      console.error("Nočné práce sa nepodarilo načítať",error);
+    }
+  };
+
+  const createNightWork = async () => {
+    if(!nightNewDate || !nightNewTitle.trim()) return showModal("info","Práca na nočnú","Vyberte dátum a zadajte názov.");
+    const fd=new FormData();
+    fd.append("shift_date",nightNewDate);
+    fd.append("kind",nightNewKind);
+    fd.append("title",nightNewTitle.trim());
+    fd.append("description",nightNewDescription.trim());
+    await appendCompressedPhoto(fd,"photo",nightNewPhoto);
+    const r=await fetchWithRetry("/api/night-work",{method:"POST",body:fd},15000,1);
+    const d=await r.json();
+    if(!r.ok||!d.success) return showModal("error","Práca na nočnú",d.error||"Nepodarilo sa uložiť.");
+    const savedDate=nightNewDate;
+    setNightNewDate("");setNightNewKind("task");setNightNewTitle("");setNightNewDescription("");setNightNewPhoto(null);
+    await loadNightWork(activeRole);
+    showModal("success","Nočná práca uložená",`Položka je naplánovaná na ${savedDate}.`);
+  };
+
+  const openNightWorkItem = (item:NightWorkItem) => {
+    setSelectedNightWork(item);
+    setNightCompletionComment("");
+    setNightCompletionPhoto(null);
+    setScreen("night-work-detail");
+  };
+
+  const completeNightWork = async () => {
+    if(!selectedNightWork) return;
+    const fd=new FormData();
+    fd.append("comment",nightCompletionComment.trim());
+    await appendCompressedPhoto(fd,"photo",nightCompletionPhoto);
+    const r=await fetchWithRetry(`/api/night-work/${selectedNightWork.id}/complete`,{method:"POST",body:fd},15000,1);
+    const d=await r.json();
+    if(!r.ok||!d.success) return showModal("error","Nočná práca",d.error||"Nepodarilo sa uzavrieť.");
+    await Promise.all([loadNightWork(activeRole),loadIssues()]);
+    setSelectedNightWork(null);
+    setNightCompletionComment("");
+    setNightCompletionPhoto(null);
+    setScreen("night-work");
+    showModal("success","Hotovo","Nočná práca bola zapísaná do histórie.");
+  };
+
+  const openNightAssign = (target:{kind:"issue"|"task";id:number;label:string}) => {
+    setNightAssignTarget(target);
+    setNightAssignDate(localDateValue());
+  };
+
+  const confirmNightAssign = async () => {
+    if(!nightAssignTarget||!nightAssignDate) return;
+    const endpoint=nightAssignTarget.kind==="issue"?"/api/night-work/from-issue":"/api/night-work/from-task";
+    const body=nightAssignTarget.kind==="issue"
+      ? {issue_id:nightAssignTarget.id,shift_date:nightAssignDate}
+      : {task_id:nightAssignTarget.id,shift_date:nightAssignDate};
+    const r=await fetchWithRetry(endpoint,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)},10000,1);
+    const d=await r.json();
+    if(!r.ok||!d.success) return showModal("error","Práca na nočnú",d.error||"Nepodarilo sa zaradiť.");
+    setNightAssignTarget(null);
+    await loadNightWork(activeRole);
+    showModal("success","Zaradené na nočnú",`${nightAssignTarget.label} • ${nightAssignDate}`);
+  };
+
   function parseReminderFromText(value:string): {date:string;time:string|null}|null {
-    const clean=value.toLowerCase(); const now=new Date(); const local=new Date(now.getFullYear(),now.getMonth(),now.getDate());
+    const clean=value.toLowerCase();
+    const now=new Date();
+    const local=new Date(now.getFullYear(),now.getMonth(),now.getDate());
     const iso=(d:Date)=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     let target:Date|null=null;
-    if(clean.includes("zajtra")){target=new Date(local);target.setDate(target.getDate()+1);} else if(clean.includes("pozajtra")){target=new Date(local);target.setDate(target.getDate()+2);}
-    const dm=clean.match(/\b(\d{1,2})[.\/-]\s*(\d{1,2})(?:[.\/-]\s*(\d{4}))?/); if(dm){const y=dm[3]?Number(dm[3]):local.getFullYear();target=new Date(y,Number(dm[2])-1,Number(dm[1]));if(target<local&&!dm[3])target.setFullYear(target.getFullYear()+1);}
-    if(!target){const ordinal=clean.match(/\b(\d{1,2})(?:\.|-?teho|-?tého)\b/);if(ordinal){target=new Date(local.getFullYear(),local.getMonth(),Number(ordinal[1]));if(target<local)target=new Date(local.getFullYear(),local.getMonth()+1,Number(ordinal[1]));}}
-    if(!target){const weekdays:[[string,number],[string,number],[string,number],[string,number],[string,number],[string,number],[string,number]]=[["nede",0],["pondel",1],["utor",2],["stred",3],["štvrt",4],["piat",5],["sobot",6]];for(const [stem,day] of weekdays){if(clean.includes(stem)){target=new Date(local);let diff=(day-local.getDay()+7)%7;if(diff===0)diff=7;target.setDate(target.getDate()+diff);break;}}}
-    if(!target)return null; const tm=clean.match(/(?:o|okolo)\s*(\d{1,2})(?:[:.]([0-5]\d))?/); const time=tm?`${String(Number(tm[1])).padStart(2,"0")}:${tm[2]||"00"}`:null; return {date:iso(target),time};
+
+    if(clean.includes("pozajtra")){
+      target=new Date(local); target.setDate(target.getDate()+2);
+    } else if(clean.includes("zajtra")){
+      target=new Date(local); target.setDate(target.getDate()+1);
+    } else if(clean.includes("dnes")){
+      target=new Date(local);
+    }
+
+    const dm=clean.match(/\b(\d{1,2})[.\/-]\s*(\d{1,2})(?:[.\/-]\s*(\d{4}))?/);
+    if(dm){
+      const y=dm[3]?Number(dm[3]):local.getFullYear();
+      target=new Date(y,Number(dm[2])-1,Number(dm[1]));
+      if(target<local&&!dm[3]) target.setFullYear(target.getFullYear()+1);
+    }
+
+    if(!target){
+      const ordinal=clean.match(/\b(\d{1,2})(?:\.|-?teho|-?tého)\b/);
+      if(ordinal){
+        target=new Date(local.getFullYear(),local.getMonth(),Number(ordinal[1]));
+        if(target<local) target=new Date(local.getFullYear(),local.getMonth()+1,Number(ordinal[1]));
+      }
+    }
+
+    if(!target){
+      const weekdays:[[string,number],[string,number],[string,number],[string,number],[string,number],[string,number],[string,number]]=[
+        ["nede",0],["pondel",1],["utor",2],["stred",3],["štvrt",4],["piat",5],["sobot",6]
+      ];
+      for(const [stem,day] of weekdays){
+        if(clean.includes(stem)){
+          target=new Date(local);
+          let diff=(day-local.getDay()+7)%7;
+          if(diff===0) diff=7;
+          target.setDate(target.getDate()+diff);
+          break;
+        }
+      }
+    }
+
+    if(!target) return null;
+
+    const numericTime=clean.match(/(?:o|okolo)\s*(\d{1,2})(?:[:.]([0-5]\d))?/);
+    let time=numericTime?`${String(Number(numericTime[1])).padStart(2,"0")}:${numericTime[2]||"00"}`:null;
+
+    if(!time){
+      const wordHours:Record<string,number>={
+        "jednej":1,"druhej":2,"tretej":3,"štvrtej":4,"piatej":5,"šiestej":6,
+        "siedmej":7,"ôsmej":8,"deviatej":9,"desiatej":10,"jedenástej":11,"dvanástej":12,
+        "trinástej":13,"štrnástej":14,"pätnástej":15,"šestnástej":16,"sedemnástej":17,
+        "osemnástej":18,"devätnástej":19,"dvadsiatej":20,"dvadsiatej prvej":21,
+        "dvadsiatej druhej":22,"dvadsiatej tretej":23
+      };
+      for(const [word,hour] of Object.entries(wordHours).sort((a,b)=>b[0].length-a[0].length)){
+        if(clean.includes(`o ${word}`) || clean.includes(`okolo ${word}`)){
+          time=`${String(hour).padStart(2,"0")}:00`;
+          break;
+        }
+      }
+    }
+
+    return {date:iso(target),time};
   }
 
+
+  const nightAssignWindow = nightAssignTarget ? (
+    <div className="action-overlay feature-overlay">
+      <div className="action-dialog night-assign-dialog">
+        <div className="action-handle" />
+        <div className="night-dialog-icon">🌙</div>
+        <h2>Posunúť na nočnú</h2>
+        <p>{nightAssignTarget.label}</p>
+        <label className="action-label">Deň nočnej zmeny<input type="date" value={nightAssignDate} onChange={(e)=>setNightAssignDate(e.target.value)} /></label>
+        <small className="night-window-note">Úloha bude v nočnom zozname aktívna od 00:00 vybraného dňa do 07:00 nasledujúceho rána.</small>
+        <button className="new-primary-button" disabled={!nightAssignDate} onClick={()=>void confirmNightAssign()}>🌙 Zaradiť na nočnú</button>
+        <button className="action-cancel-button" onClick={()=>setNightAssignTarget(null)}>Zrušiť</button>
+      </div>
+    </div>
+  ) : null;
 
   const globalWindows = (
     <>
@@ -4478,6 +4734,7 @@ function App() {
       {modalWindow}
       {loginLoadingWindow}
       {offlineWindow}
+      {nightAssignWindow}
     </>
   );
 
@@ -4895,6 +5152,76 @@ function App() {
     );
   }
 
+  if (screen === "night-work" && activeRole && ["maintenance","maintenance_manager","operations_manager"].includes(activeRole)) {
+    const isManager=activeRole==="maintenance_manager";
+    const historyGroups=nightWorkHistory.reduce<Record<string,NightWorkItem[]>>((acc,item)=>{(acc[item.shift_date] ||= []).push(item);return acc;},{});
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card">
+      <div className="new-page-header"><button onClick={()=>setScreen("staff-portal")}>←</button><div><small>NOČNÁ ZMENA</small><h1>🌙 Práce na nočnú</h1></div><span>{activeRole==="maintenance"?nightWorkActive.length:nightWorkPlanned.length}</span></div>
+
+      {isManager&&<div className="feature-compose-card night-compose-card">
+        <h3>Nová práca na nočnú</h3>
+        <div className="inline-fields"><input type="date" value={nightNewDate} onChange={e=>setNightNewDate(e.target.value)}/><select value={nightNewKind} onChange={e=>setNightNewKind(e.target.value as "task"|"note")}><option value="task">Práca / úloha</option><option value="note">Informácia pre nočnú</option></select></div>
+        <input value={nightNewTitle} onChange={e=>setNightNewTitle(e.target.value)} placeholder="Čo treba v noci spraviť?"/>
+        <div className="voice-field-row"><textarea rows={3} value={nightNewDescription} onChange={e=>setNightNewDescription(e.target.value)} placeholder="Doplňujúci popis…"/><button className="voice-button" onClick={()=>startVoiceDictation(setNightNewDescription,nightNewDescription)}>🎤</button></div>
+        <div className="inline-fields"><label className="file-mini">📷 Foto<input type="file" accept="image/*" onChange={e=>setNightNewPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void createNightWork()}>🌙 Pridať na nočnú</button></div>
+      </div>}
+
+      <h3 className="section-caption">{activeRole==="maintenance"?"Aktuálna nočná":"Naplánované práce"}</h3>
+      <div className="night-work-list">
+        {(activeRole==="maintenance"?nightWorkActive:nightWorkPlanned).length===0?<div className="new-empty-state">✓ Žiadne práce na nočnú.</div>:(activeRole==="maintenance"?nightWorkActive:nightWorkPlanned).map(item=><button key={item.id} className={`night-work-row ${item.kind==="note"?"night-note":""}`} onClick={()=>openNightWorkItem(item)}><span>{item.kind==="note"?"ℹ️":"🌙"}</span><div><strong>{item.title}</strong><p>{item.description||""}</p><small>Nočná {nightShiftLabel(item.shift_date)} • zadal {item.created_by_name}{item.source_issue_id?` • závada #${String(item.source_issue_id).padStart(4,"0")}`:""}{item.source_task_id?` • úloha #${item.source_task_id}`:""}</small></div><b>›</b></button>)}
+      </div>
+
+      {isManager && (
+        <details className="history-details night-history-details">
+          <summary>História nočných zmien ({Object.keys(historyGroups).length})</summary>
+          <div className="night-history-groups">
+            {Object.entries(historyGroups)
+              .sort(([a],[b]) => b.localeCompare(a))
+              .map(([date,items]) => {
+                const done=items.filter((item) => item.status==="completed").length;
+                const missed=items.filter((item) => item.status==="expired").length;
+                return (
+                  <details key={date} className="night-history-day">
+                    <summary>
+                      <strong>Nočná {nightShiftLabel(date)}</strong>
+                      <span>{items.length} zadaných • {done} hotové • {missed} nesplnené</span>
+                    </summary>
+                    <div>
+                      {items.map((item) => (
+                        <div key={item.id} className={`night-history-item ${item.status}`}>
+                          <span>{item.status==="completed" ? "✓" : "!"}</span>
+                          <div>
+                            <strong>{item.title}</strong>
+                            <small>
+                              {item.status==="completed"
+                                ? `Hotovo • ${item.completed_by_name || "—"} • ${formatDate(item.completed_at)}`
+                                : "Nesplnené do 07:00"}
+                            </small>
+                            {item.completion_comment && <p>{item.completion_comment}</p>}
+                            {item.completion_photo_key && <img src={getPhotoUrl(item.completion_photo_key)} alt="Foto z nočnej" />}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                );
+              })}
+          </div>
+        </details>
+      )}
+    </section></main>{globalWindows}</>;
+  }
+
+  if (screen === "night-work-detail" && selectedNightWork && activeRole) {
+    const canComplete=activeRole==="maintenance"&&selectedNightWork.status==="scheduled";
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card">
+      <div className="new-page-header"><button onClick={()=>{setSelectedNightWork(null);setScreen("night-work");}}>←</button><div><small>{selectedNightWork.kind==="note"?"INFORMÁCIA NA NOČNÚ":"PRÁCA NA NOČNÚ"}</small><h1>{selectedNightWork.title}</h1></div><span>{nightShiftLabel(selectedNightWork.shift_date)}</span></div>
+      <div className="detail-text-card"><p>{selectedNightWork.description||"Bez ďalšieho popisu."}</p><small>Zadal: {selectedNightWork.created_by_name} • {formatDate(selectedNightWork.created_at)}</small>{selectedNightWork.photo_key&&<img src={getPhotoUrl(selectedNightWork.photo_key)} alt="Foto zadania"/>}</div>
+      {canComplete&&<div className="feature-compose-card night-complete-card"><h3>{selectedNightWork.kind==="note"?"Potvrdiť prečítanie":"Označiť ako hotovo"}</h3><div className="voice-field-row"><textarea rows={3} value={nightCompletionComment} onChange={e=>setNightCompletionComment(e.target.value)} placeholder="Krátky komentár (voliteľný)…"/><button className="voice-button" onClick={()=>startVoiceDictation(setNightCompletionComment,nightCompletionComment)}>🎤</button></div><div className="inline-fields"><label className="file-mini">📷 Foto (voliteľné)<input type="file" accept="image/*" onChange={e=>setNightCompletionPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void completeNightWork()}>{selectedNightWork.kind==="note"?"✓ Evidujem":"✅ Hotovo"}</button></div></div>}
+      {!canComplete&&<div className="night-readonly-note">Táto položka je len na prezeranie.</div>}
+    </section></main>{globalWindows}</>;
+  }
+
   if (screen === "handover" && activeRole && ["maintenance_manager","operations_manager"].includes(activeRole)) {
     const activeNotes = handoverNotes.filter((n) => !Number(n.acknowledged));
     const archivedNotes = handoverNotes.filter((n) => Number(n.acknowledged));
@@ -4929,11 +5256,11 @@ function App() {
   }
 
   if (screen === "management-task-detail" && selectedManagementTask) {
-    const statuses=[['progress','V riešení'],['quote','Čaká na ponuku'],['decision','Čaká na rozhodnutie'],['realization','Čaká na realizáciu'],['closed','Hotové']];
+    const statuses=[['progress','V riešení'],['material','Čaká na materiál'],['quote','Čaká na ponuku'],['decision','Čaká na rozhodnutie'],['realization','Čaká na realizáciu'],['closed','Hotové']];
     return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>{setScreen('management-tasks');void loadManagementTasks();}}>←</button><div><small>ÚLOHA #{selectedManagementTask.id}</small><h1>{selectedManagementTask.title}</h1></div></div>
       <div className="detail-text-card"><p>{selectedManagementTask.description||'Bez popisu'}</p><small>Vytvoril: {selectedManagementTask.created_by_name} • Zodpovedný: {selectedManagementTask.owner_name||'zatiaľ nikto'}</small></div>
       {activeRole==="operations_manager"&&<div className="task-assign-row"><select value={managementTaskAssignee} onChange={e=>setManagementTaskAssignee(e.target.value)}><option value="">Vybrať zodpovedného vedúceho…</option>{STAFF_DIRECTORY.maintenance_manager.map(name=><option key={name} value={name}>{name}</option>)}</select><button onClick={()=>void managementTaskAction('assign')}>Priradiť</button></div>}
-      <div className="task-action-strip"><button onClick={()=>void managementTaskAction('take')}>🙋 Prevziať k sebe</button>{statuses.map(([s,l])=><button key={s} onClick={()=>void managementTaskAction('status',s)}>{l}</button>)}</div>
+      <div className="task-action-strip">{selectedManagementTask.status==="closed"?<button onClick={()=>void managementTaskAction('reopen')}>🔄 Znovu otvoriť</button>:<>{activeRole==="maintenance_manager"&&<button onClick={()=>void managementTaskAction('take')}>🙋 {selectedManagementTask.owner_name&&selectedManagementTask.owner_name.toLowerCase()!==activeStaffName.toLowerCase()?`Prevziať od ${selectedManagementTask.owner_name}`:"Prevziať k sebe"}</button>}{activeRole==="maintenance_manager"&&<button className="night-action-button" onClick={()=>openNightAssign({kind:"task",id:selectedManagementTask.id,label:selectedManagementTask.title})}>🌙 Na nočnú</button>}{statuses.map(([s,l])=><button key={s} onClick={()=>void managementTaskAction('status',s)}>{l}</button>)}</>}</div>
       <div className="thread-list">{managementTaskComments.map(c=><div className="thread-item" key={c.id}><strong>{c.author_name}</strong><small>{formatDate(c.created_at)}</small><p>{c.text}</p>{c.photo_key&&<img src={getPhotoUrl(c.photo_key)} alt="Foto"/>}</div>)}</div>
       <div className="feature-compose-card"><div className="voice-field-row"><textarea rows={3} value={managementTaskComment} onChange={e=>setManagementTaskComment(e.target.value)} placeholder="Pridať komentár / priebežnú informáciu…"/><button className="voice-button" onClick={()=>startVoiceDictation(setManagementTaskComment,managementTaskComment)}>🎤</button></div><div className="inline-fields"><label className="file-mini">📷 Foto<input type="file" accept="image/*" onChange={e=>setManagementTaskPhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void managementTaskAction('comment')}>Pridať komentár</button></div></div>
     </section></main>{globalWindows}</>;
@@ -4947,7 +5274,8 @@ function App() {
   }
 
   if (screen === "purchase-request") {
-    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>setScreen(activeRole?'staff-portal':'home')}>←</button><div><small>NÁKUPY</small><h1>Požiadavka na nákup</h1></div></div>
+    return <><main className="app-shell new-ui-shell"><section className="app-card list-page-card"><div className="new-page-header"><button onClick={()=>{resetPurchaseForm();setScreen(activeRole?'staff-portal':'home');}}>←</button><div><small>NÁKUPY</small><h1>Požiadavka na nákup</h1></div></div>
+      {(purchaseSourceIssueId||purchaseSourceTaskId)&&<div className="linked-source-note">🔗 Požiadavka bude prepojená s {purchaseSourceIssueId?`závadou #${String(purchaseSourceIssueId).padStart(4,"0")}`:`úlohou #${purchaseSourceTaskId}`}.</div>}
       <div className="purchase-form">{!activeRole&&<label>Meno žiadateľa *<input value={purchaseRequester} onChange={e=>setPurchaseRequester(e.target.value)}/></label>}<label>Čo treba kúpiť *<input value={purchaseItem} onChange={e=>setPurchaseItem(e.target.value)} /></label><div className="two-col-fields"><label>Množstvo<input value={purchaseQuantity} onChange={e=>setPurchaseQuantity(e.target.value)}/></label><label>Priorita<select value={purchasePriority} onChange={e=>setPurchasePriority(e.target.value)}><option value="normal">Bežné</option><option value="urgent">Súrne</option></select></label></div><div className="two-col-fields"><label>Cena<input value={purchasePrice} onChange={e=>setPurchasePrice(e.target.value)} placeholder="napr. 80 €"/></label><label>Typ ceny<select value={purchasePriceKind} onChange={e=>setPurchasePriceKind(e.target.value)}><option value="estimated">Odhadovaná</option><option value="exact">Presná</option></select></label></div><label>Poznámka<textarea rows={3} value={purchaseNote} onChange={e=>setPurchaseNote(e.target.value)}/></label><label className="file-mini">📷 Pridať fotografiu<input type="file" accept="image/*" onChange={e=>setPurchasePhoto(e.target.files?.[0]||null)}/></label><button className="new-primary-button" onClick={()=>void submitPurchase()}>Odoslať požiadavku</button></div>
       {activeRole&&<div className="my-purchase-section"><h3>Moje požiadavky a nákupy</h3>{purchases.slice(0,8).map(p=><div key={p.id} className="purchase-status-row"><strong>{p.item_name}</strong><span className={`purchase-status ${p.status}`}>{purchaseStatusLabel(p.status)}</span></div>)}</div>}
     </section></main>{globalWindows}</>;
@@ -5002,6 +5330,8 @@ function App() {
                   <button className="manager-action-card card-handover" onClick={()=>{void loadHandover();setScreen("handover");}}><span>💬</span><div><strong>Odkazy</strong><small>Medzi vedúcimi</small></div>{handoverNotes.filter(n=>!Number(n.acknowledged)).length>0&&<em>{handoverNotes.filter(n=>!Number(n.acknowledged)).length}</em>}</button>
                   <button className="manager-action-card card-tasks" onClick={()=>{void loadManagementTasks();setScreen("management-tasks");}}><span>✅</span><div><strong>Úlohy</strong><small>{managementTasks.filter(t=>t.status!=="closed").length} otvorených / {managementTasks.filter(t=>t.status!=="closed"&&t.owner_name?.toLowerCase()===activeStaffName.toLowerCase()).length} moje</small></div></button>
                   <button className="manager-action-card card-reminders" onClick={()=>{void loadReminders();setScreen("reminders");}}><span>📅</span><div><strong>Dnešné pripomienky</strong><small>{reminders.length} dnes</small></div>{reminders.length>0&&<em>{reminders.length}</em>}</button>
+                  {activeRole==="maintenance_manager"&&<button className="manager-action-card card-night" onClick={()=>{void loadNightWork(activeRole);setScreen("night-work");}}><span>🌙</span><div><strong>Práce na nočnú</strong><small>{nightWorkPlanned.length} naplánovaných</small></div>{nightWorkActive.length>0&&<em>{nightWorkActive.length}</em>}</button>}
+                  <button className="manager-action-card card-purchase-request" onClick={()=>openPurchaseRequest()}><span>➕</span><div><strong>Požiadavka na nákup</strong><small>{activeRole==="operations_manager"?"Ide rovno do nákupného zoznamu":"Vytvoriť novú požiadavku"}</small></div></button>
                   {activeRole==="operations_manager"&&<button className="manager-action-card card-purchase" onClick={()=>{void loadPurchases("all");setScreen("purchase-approval");}}><span>🛒</span><div><strong>Schvaľovanie nákupov</strong><small>{purchases.filter(p=>p.status==="pending").length} čaká</small></div>{purchases.filter(p=>p.status==="pending").length>0&&<em>🔔 {purchases.filter(p=>p.status==="pending").length}</em>}</button>}
                   {activeRole==="operations_manager"&&<button className="manager-action-card card-overview" onClick={()=>setScreen("operations-dashboard")}><span>🔧</span><div><strong>Závady – prehľad</strong><small>{issues.filter(i=>i.status!=="closed").length} otvorených</small></div></button>}
                 </div>
@@ -5028,7 +5358,8 @@ function App() {
                   <button className="portal-tile tile-report" onClick={openNewReportForStaff}><span className="tile-icon">＋</span><div><strong>Nahlásiť závadu</strong><small>Adresovať ktorémukoľvek stredisku</small></div><b>›</b></button>
                   <button className="portal-tile tile-my" onClick={()=>{void loadPurchases("mine"); if(["maintenance_manager","operations_manager"].includes(activeRole)) void loadManagementTasks(); setScreen("staff-my-reports");}}><span className="tile-icon">📋</span><div><strong>Moje zadané úlohy a nákupy</strong><small>Moje hlásenia a nákupné požiadavky</small></div>{myOpen>0&&<em>{myOpen}</em>}<b>›</b></button>
                   <button className={`portal-tile ${info.colorClass}`} onClick={()=>openInbox(activeRole)}><span className="tile-icon">{info.icon}</span><div><strong>Závady adresované nám</strong><small>{info.label}</small></div>{countFor(activeRole)>0&&<em>{countFor(activeRole)}</em>}<b>›</b></button>
-                  <button className="portal-tile tile-purchase" onClick={()=>{void loadPurchases("mine");setScreen("purchase-request");}}><span className="tile-icon">🛒</span><div><strong>Požiadavka na nákup</strong><small>Vytvoriť alebo sledovať požiadavku</small></div><b>›</b></button>
+                  {activeRole==="maintenance"&&<button className="portal-tile tile-night" onClick={()=>{void loadNightWork(activeRole);setScreen("night-work");}}><span className="tile-icon">⚠️</span><div><strong>🌙 Práce na nočnú</strong><small>{nightWorkActive.length>0?`${nightWorkActive.length} zadaných na aktuálnu nočnú`:"Momentálne bez zadania"}</small></div>{nightWorkActive.length>0&&<em>{nightWorkActive.length}</em>}<b>›</b></button>}
+                  <button className="portal-tile tile-purchase" onClick={()=>openPurchaseRequest()}><span className="tile-icon">🛒</span><div><strong>Požiadavka na nákup</strong><small>Vytvoriť alebo sledovať požiadavku</small></div><b>›</b></button>
                   {activeRole==="maintenance"&&<button className="portal-tile tile-pumps" onClick={()=>void openPumps()}><span className="tile-icon">⚙️</span><div><strong>Čerpadlá</strong><small>{pumpRepairCount} v oprave • {pumpStockCount} na sklade</small></div>{pumpRepairCount>0&&<em>{pumpRepairCount}</em>}<b>›</b></button>}
                 </div>
                 <div className="portal-secondary-grid"><button onClick={()=>openAlerts("maintenance",false)}><span>⚠️</span><strong>Upozornenia a odstávky</strong></button>{activeRole==="maintenance"&&<button onClick={()=>{setMessagesPanelRole("maintenance");void loadMessages("maintenance");}}><span>💬</span><strong>Správy vedúcemu</strong></button>}{activeRole==="maintenance"&&<button onClick={()=>setScreen("maintenance-dashboard")}><span>🧰</span><strong>Detailný pracovný prehľad</strong></button>}</div>
@@ -5043,9 +5374,10 @@ function App() {
 
   if ((screen === "staff-inbox" || screen === "staff-my-reports") && activeRole) {
     const isMyReports = screen === "staff-my-reports";
+    const nightIssueIds = new Set(nightWorkActive.filter((item)=>item.source_issue_id).map((item)=>Number(item.source_issue_id)));
     const baseIssues = isMyReports
       ? issues.filter((issue) => issue.reporter_role === activeRole && issue.reporter_name?.toLowerCase() === activeStaffName.toLowerCase())
-      : issues.filter((issue) => (issue.destination_role || "maintenance") === staffInboxRole);
+      : issues.filter((issue) => (issue.destination_role || "maintenance") === staffInboxRole && !(activeRole==="maintenance" && staffInboxRole==="maintenance" && nightIssueIds.has(issue.id)));
     const visibleIssues = baseIssues.filter((issue) =>
       staffStatusFilter === "all" ? true :
       staffStatusFilter === "open" ? issue.status !== "closed" :
@@ -5059,7 +5391,7 @@ function App() {
             <div className="new-page-header">
               <button onClick={() => setScreen("staff-portal")}>←</button>
               <div><small>{ROLE_INFO[activeRole].label}</small><h1>{title}</h1></div>
-              {isMyReports ? <button className="header-add-button" onClick={()=>setScreen("purchase-request")}>＋ Nákup</button> : <span>{visibleIssues.length}</span>}
+              {isMyReports ? <button className="header-add-button" onClick={()=>openPurchaseRequest()}>＋ Nákup</button> : <span>{visibleIssues.length}</span>}
             </div>
             <div className="status-chip-row">
               {[
@@ -5092,6 +5424,7 @@ function App() {
 
   if (screen === "staff-issue" && selectedIssue && activeRole) {
     const destination = (selectedIssue.destination_role || "maintenance") as AuthRole;
+    const isLegacyTask = selectedIssue.issue_type === "task" || issueEvents.some((event) => event.event_type === "operations_task_created");
     const canEdit = (destination === activeRole || activeRole === "maintenance_manager") && selectedIssue.status !== "closed";
     const assignee = selectedIssue.assignee_name || selectedIssue.current_worker_name;
     const isMine = assignee?.toLowerCase() === activeStaffName.toLowerCase();
@@ -5102,7 +5435,7 @@ function App() {
           <section className="app-card issue-detail-new">
             <div className="new-page-header">
               <button onClick={() => setScreen(staffIssueReturnScreen)}>←</button>
-              <div><small>ZÁVADA #{String(selectedIssue.id).padStart(4,"0")}</small><h1>{selectedIssue.location}</h1></div>
+              <div><small>{isLegacyTask ? "ÚLOHA" : "ZÁVADA"} #{String(selectedIssue.id).padStart(4,"0")}</small><h1>{selectedIssue.location}</h1></div>
               <span className={`detail-status status-${selectedIssue.status}`}>{statusLabel(selectedIssue.status)}</span>
             </div>
             <div className="issue-detail-body-new">
@@ -5112,11 +5445,12 @@ function App() {
 
               {canEdit && (
                 <div className="issue-action-grid-new">
-                  <button className="action-take" disabled={isMine || actionLoading} onClick={() => void performStaffIssueAction("take")}><span>👷</span><strong>{isMine ? "Máte prevzaté" : assignee ? `Prevziať od ${assignee}` : "Prevziať závadu"}</strong></button>
+                  <button className="action-take" disabled={isMine || actionLoading} onClick={() => void performStaffIssueAction("take")}><span>👷</span><strong>{isMine ? "Máte prevzaté" : assignee ? `Prevziať od ${assignee}` : isLegacyTask ? "Prevziať úlohu" : "Prevziať závadu"}</strong></button>
                   <button onClick={() => setStaffIssueAction("comment")}><span>💬</span><strong>Pridať komentár</strong></button>
                   <button className="action-material" onClick={() => setStaffIssueAction("material")}><span>📦</span><strong>Čaká na materiál</strong></button>
                   <button className="action-transfer" onClick={() => setStaffIssueAction("transfer")}><span>↪️</span><strong>Posunúť ďalej</strong></button>
-                  <button className="action-close" onClick={() => setStaffIssueAction("close")}><span>✅</span><strong>Vyriešiť / uzavrieť</strong></button>
+                  <button className="action-close" onClick={() => setStaffIssueAction("close")}><span>✅</span><strong>{isLegacyTask ? "Vyriešiť / uzavrieť úlohu" : "Vyriešiť / uzavrieť"}</strong></button>
+                  {activeRole==="maintenance_manager"&&<button className="action-night" onClick={()=>openNightAssign({kind:"issue",id:selectedIssue.id,label:`#${String(selectedIssue.id).padStart(4,"0")} • ${selectedIssue.location}`})}><span>🌙</span><strong>Posunúť na nočnú</strong></button>}
                 </div>
               )}
               {selectedIssue.status === "closed" && ["maintenance_manager","operations_manager"].includes(activeRole) && (
@@ -5791,7 +6125,7 @@ function App() {
             </div>
             <div className="dashboard-title-row">
               <div><div className="section-label">CELÁ ÚDRŽBA</div><h1>Prehľad</h1></div>
-              <button className="operations-add-task" onClick={() => setScreen("operations-new-task")}>＋ Úloha</button>
+              <button className="operations-add-task" onClick={() => { void loadManagementTasks(); setScreen("management-tasks"); }}>＋ Úloha</button>
             </div>
 
             <div className="feature-quick-grid management-feature-grid operations-feature-grid">
@@ -6839,6 +7173,14 @@ function App() {
               {managerSearch && <button onClick={() => setManagerSearch("")}>×</button>}
             </div>
 
+            <div className="operations-filter-block worker-filter-block">
+              <div className="operations-filter-title">PRACOVNÍK</div>
+              <div className="worker-filter-grid">
+                <label>Prevzal<select value={workerTakenFilterName} onChange={(e)=>setWorkerTakenFilterName(e.target.value)}><option value="">Všetci</option>{STAFF_DIRECTORY.maintenance.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+                <label>Uzavrel<select value={workerClosedFilterName} onChange={(e)=>setWorkerClosedFilterName(e.target.value)}><option value="">Všetci</option>{STAFF_DIRECTORY.maintenance.map(name=><option key={name} value={name}>{name}</option>)}</select></label>
+              </div>
+            </div>
+
             <div className="operations-filter-block">
               <div className="operations-filter-title">VEK ZÁVADY OD NAHLÁSENIA</div>
               <div className="operations-filter-chips">
@@ -7881,7 +8223,6 @@ function App() {
               <div className="new-hero-copy"><small>NOVÉ HLÁSENIE</small><h1>Nahlásiť závadu</h1><p>Vyberte adresáta a doplňte základné informácie.</p></div>
             </div>
 
-            <div className="voice-report-banner"><button type="button" onClick={()=>void runVoiceReportAssistant()}>🎤 Nahlásiť hlasom</button><span>Aplikácia sa vás postupne opýta na miesto, popis a adresáta.</span></div>
             <form className="new-form report-new-form" onSubmit={submitReport}>
               {publicAlerts.length > 0 && (
                 <button type="button" className="report-alert-strip" onClick={() => openAlerts("public", false)}>
@@ -7900,8 +8241,8 @@ function App() {
                   {DESTINATION_OPTIONS.map((role) => <option key={role} value={role}>{ROLE_INFO[role].label}</option>)}
                 </select>
               </label>
-              <label>Kde sa závada nachádza?<div className="voice-field-row"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Miesto / prevádzka / atrakcia" /><button type="button" className="voice-button" onClick={()=>startVoiceDictation(setLocation,location)}>🎤</button></div></label>
-              <label>Popis závady<div className="voice-field-row"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} placeholder="Čo je pokazené alebo čo treba vyriešiť?" /><button type="button" className="voice-button" onClick={()=>startVoiceDictation(setDescription,description)}>🎤</button></div></label>
+              <label>Kde sa závada nachádza?<div className="voice-field-row"><input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="Miesto / prevádzka / atrakcia" />{activeRole&&<button type="button" className="voice-button" onClick={()=>startVoiceDictation(setLocation,location)}>🎤</button>}</div></label>
+              <label>Popis závady<div className="voice-field-row"><textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={5} placeholder="Čo je pokazené alebo čo treba vyriešiť?" />{activeRole&&<button type="button" className="voice-button" onClick={()=>startVoiceDictation(setDescription,description)}>🎤</button>}</div></label>
 
               <MultiPhotoChoice files={reportPhotos} onChange={(files) => { setReportPhotos(files); setPhotoFile(files[0] || null); setPhotoName(files[0]?.name || ""); }} title="Fotografie závady" max={3} />
 
@@ -7954,7 +8295,7 @@ function App() {
               <button className="new-home-tile home-report-tile" onClick={() => { setReporter(""); setReportPhotos([]); setPhotoFile(null); setPhotoName(""); setReportDestinationRole("maintenance"); setReportReturnScreen("home"); setScreen("report"); }}>
                 <span>⚠️</span><div><strong>Nahlásiť závadu</strong><small>Bez prihlásenia</small></div><b>›</b>
               </button>
-              <button className="new-home-tile home-purchase-tile" onClick={() => { setPurchaseRequester(""); setPurchaseItem(""); setPurchaseQuantity(""); setPurchasePrice(""); setPurchaseNote(""); setPurchasePriority("normal"); setPurchasePhoto(null); setScreen("purchase-request"); }}>
+              <button className="new-home-tile home-purchase-tile" onClick={() => openPurchaseRequest()}>
                 <span>🛒</span><div><strong>Požiadavka na nákup</strong><small>Bez prihlásenia</small></div><b>›</b>
               </button>
               <button className="new-home-tile home-maintenance-tile" onClick={() => openRoleLogin("maintenance")}>
