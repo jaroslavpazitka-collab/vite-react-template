@@ -2753,7 +2753,7 @@ app.get("/api/purchases", async (c) => {
 
 app.post("/api/purchases/:id/approve", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id"));
-  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='approved',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run();
   await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'approved',?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,'Schválené').run();
   await notifyNamedUser(c,row.requester_role,row.requester_name,"✅ Nákup schválený",`${row.item_name} bol schválený na nákup.`); return c.json({success:true});
@@ -2761,13 +2761,13 @@ app.post("/api/purchases/:id/approve", async (c) => {
 
 app.post("/api/purchases/:id/reject", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const body=await c.req.json().catch(()=>({})); const reason=String(body.reason||"").trim();
-  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='rejected',rejection_reason=?,approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(reason,session.name,id).run();
   await notifyNamedUser(c,row.requester_role,row.requester_name,"❌ Nákup zamietnutý",`${row.item_name}${reason?`: ${reason}`:"."}`); return c.json({success:true});
 });
 
 app.post("/api/purchases/:id/in-stock", async (c) => {
-  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
+  await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first<any>(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='in_stock',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"📦 Položka je na sklade",`${row.item_name} je dostupný na sklade.`); return c.json({success:true});
 });
 
