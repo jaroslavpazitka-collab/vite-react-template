@@ -3459,3 +3459,236 @@ img {
     margin-right: 14px;
   }
 }
+
+
+/* =========================================================
+   v1.8.0 – NOČNÉ PRÁCE / PREPOJENÉ NÁKUPY
+   ========================================================= */
+
+.manager-action-card.card-night,
+.portal-tile.tile-night {
+  background:
+    radial-gradient(circle at 88% 12%, rgba(255,255,255,.18), transparent 35%),
+    linear-gradient(135deg, #172a4c 0%, #244f83 58%, #3c74ab 100%);
+  color: #fff;
+  border-color: rgba(42,91,145,.28);
+}
+
+.manager-action-card.card-night small,
+.portal-tile.tile-night small {
+  color: rgba(255,255,255,.82) !important;
+}
+
+.manager-action-card.card-night em,
+.portal-tile.tile-night em {
+  background: #ffbe3b;
+  color: #2c2206;
+}
+
+.manager-action-card.card-purchase-request {
+  background: linear-gradient(135deg, #eff9ff 0%, #e6f2ff 100%);
+  border-color: #c7e0f4;
+}
+
+.issue-action-grid-new .action-night,
+.task-action-strip .night-action-button {
+  background: linear-gradient(135deg, #213d67, #315f94);
+  color: #fff;
+  border-color: transparent;
+}
+
+.linked-source-note,
+.night-readonly-note,
+.night-window-note {
+  display: block;
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: #eef6ff;
+  border: 1px solid #d4e6f7;
+  color: #28506f;
+  font-size: .9rem;
+  line-height: 1.4;
+}
+
+.night-assign-dialog {
+  max-width: 430px;
+}
+
+.night-dialog-icon {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 10px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #203d67, #335f92);
+  color: #fff;
+  font-size: 1.9rem;
+  box-shadow: 0 10px 24px rgba(28,58,98,.2);
+}
+
+.night-compose-card {
+  border: 1px solid #d6e5f3;
+  background:
+    radial-gradient(circle at 95% 5%, rgba(62,111,165,.08), transparent 34%),
+    #fff;
+}
+
+.night-compose-card h3,
+.night-complete-card h3 {
+  margin: 0 0 12px;
+}
+
+.night-work-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+}
+
+.night-work-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 42px minmax(0,1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 15px;
+  border: 1px solid #dce8f2;
+  border-radius: 17px;
+  background: #fff;
+  color: var(--ink);
+  text-align: left;
+  box-shadow: 0 5px 16px rgba(20,50,76,.05);
+}
+
+.night-work-row > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: #eaf2fb;
+  font-size: 1.35rem;
+}
+
+.night-work-row.night-note > span {
+  background: #fff5dc;
+}
+
+.night-work-row strong,
+.night-history-item strong {
+  display: block;
+  margin-bottom: 3px;
+}
+
+.night-work-row p,
+.night-history-item p {
+  margin: 4px 0;
+  color: #56616c;
+  line-height: 1.35;
+}
+
+.night-work-row small,
+.night-history-item small {
+  color: #7f8992;
+}
+
+.night-work-row b {
+  font-size: 1.45rem;
+  color: #8aa0b4;
+}
+
+.night-history-details {
+  margin-top: 18px;
+}
+
+.night-history-groups {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.night-history-day {
+  border: 1px solid #dfe8ef;
+  border-radius: 16px;
+  overflow: hidden;
+  background: #fff;
+}
+
+.night-history-day > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 15px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.night-history-day > summary::-webkit-details-marker {
+  display: none;
+}
+
+.night-history-day > summary span {
+  color: #6d7882;
+  font-size: .83rem;
+  text-align: right;
+}
+
+.night-history-day > div {
+  padding: 0 12px 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.night-history-item {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 13px;
+  background: #f7f9fb;
+}
+
+.night-history-item > span {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 900;
+}
+
+.night-history-item.completed > span {
+  color: #167a43;
+  background: #dff5e8;
+}
+
+.night-history-item.expired > span {
+  color: #b13b30;
+  background: #ffe8e5;
+}
+
+.night-history-item img {
+  display: block;
+  width: min(180px,100%);
+  max-height: 150px;
+  object-fit: cover;
+  margin-top: 8px;
+  border-radius: 12px;
+}
+
+.night-complete-card {
+  margin-top: 16px;
+}
+
+@media (max-width: 620px) {
+  .night-history-day > summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .night-history-day > summary span {
+    text-align: left;
+  }
+}
