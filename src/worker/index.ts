@@ -325,6 +325,31 @@ async function ensureFeatureTables(db: D1Database) {
         expires_at TEXT NOT NULL
       )
     `),
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS night_work (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        shift_date TEXT NOT NULL,
+        kind TEXT NOT NULL DEFAULT 'task',
+        source_issue_id INTEGER,
+        source_task_id INTEGER,
+        title TEXT NOT NULL,
+        description TEXT,
+        photo_key TEXT,
+        status TEXT NOT NULL DEFAULT 'scheduled',
+        created_by_role TEXT NOT NULL,
+        created_by_name TEXT NOT NULL,
+        completed_by_role TEXT,
+        completed_by_name TEXT,
+        completion_comment TEXT,
+        completion_photo_key TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT,
+        expired_at TEXT,
+        FOREIGN KEY (source_issue_id) REFERENCES issues(id),
+        FOREIGN KEY (source_task_id) REFERENCES management_tasks(id)
+      )
+    `),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_messages_status ON maintenance_messages(status)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_maintenance_message_replies_message_id ON maintenance_message_replies(message_id)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_alerts_dates ON alerts(start_date, end_date)`),
@@ -343,6 +368,9 @@ async function ensureFeatureTables(db: D1Database) {
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_reminders_date ON reminders(due_date,due_time)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_purchase_status ON purchase_requests(status,priority,created_at DESC)`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_purchase_requester ON purchase_requests(requester_name,created_at DESC)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_night_work_shift ON night_work(shift_date,status,id)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_night_work_issue ON night_work(source_issue_id,status)`),
+    db.prepare(`CREATE INDEX IF NOT EXISTS idx_night_work_task ON night_work(source_task_id,status)`),
   ]);
 
   // v1.6.0: rozšírenie pôvodných závad bez straty historických dát.
@@ -352,6 +380,8 @@ async function ensureFeatureTables(db: D1Database) {
   await ensureColumn(db, "issues", "assignee_name", "TEXT");
   await ensureColumn(db, "issues", "issue_type", "TEXT NOT NULL DEFAULT 'issue'");
   await ensureColumn(db, "issues", "source_record_id", "INTEGER");
+  await ensureColumn(db, "purchase_requests", "source_issue_id", "INTEGER");
+  await ensureColumn(db, "purchase_requests", "source_task_id", "INTEGER");
 
   await db.prepare(`UPDATE issues SET reporter_role='public' WHERE reporter_role IS NULL OR TRIM(reporter_role)=''`).run();
   await db.prepare(`UPDATE issues SET destination_role='maintenance_manager' WHERE status='manager' AND (destination_role IS NULL OR destination_role='maintenance')`).run();
@@ -394,6 +424,84 @@ function slovakToday() {
   }).formatToParts(new Date());
   const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+function addIsoDays(isoDate: string, days: number) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const value = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0));
+  return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}-${String(value.getUTCDate()).padStart(2, "0")}`;
+}
+
+function slovakNowParts() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Bratislava",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((part) => part.type === type)?.value || "";
+  return {
+    date: `${get("year")}-${get("month")}-${get("day")}`,
+    hour: Number(get("hour") || "0"),
+    minute: Number(get("minute") || "0"),
+  };
+}
+
+function activeNightShiftDates() {
+  const now = slovakNowParts();
+  return now.hour < 7 ? [addIsoDays(now.date, -1), now.date] : [now.date];
+}
+
+async function expireNightWork(db: D1Database) {
+  const now = slovakNowParts();
+  const oldestActiveDate = now.hour < 7 ? addIsoDays(now.date, -1) : now.date;
+  const rows = await db.prepare(`
+    SELECT * FROM night_work
+    WHERE status='scheduled' AND shift_date < ?
+    ORDER BY shift_date,id
+  `).bind(oldestActiveDate).all<any>();
+
+  for (const row of rows.results || []) {
+    await db.prepare(`
+      UPDATE night_work
+      SET status='expired',expired_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='scheduled'
+    `).bind(row.id).run();
+
+    if (row.source_issue_id) {
+      const issue = await db.prepare(`SELECT status FROM issues WHERE id=?`).bind(row.source_issue_id).first<any>();
+      if (issue && issue.status !== "closed") {
+        await insertIssueEvent(
+          db,
+          Number(row.source_issue_id),
+          "night_not_completed",
+          "system",
+          "Nočná zmena",
+          `Nočná úloha pre ${row.shift_date} nebola do 07:00 označená ako hotová. Závada zostáva medzi aktívnymi.`,
+          [],
+          "action"
+        );
+      }
+    }
+
+    if (row.source_task_id) {
+      const task = await db.prepare(`SELECT status FROM management_tasks WHERE id=?`).bind(row.source_task_id).first<any>();
+      if (task && task.status !== "closed") {
+        await db.prepare(`
+          INSERT INTO management_task_comments(task_id,author_role,author_name,text,created_at)
+          VALUES (?, 'system', 'Nočná zmena', ?, CURRENT_TIMESTAMP)
+        `).bind(
+          row.source_task_id,
+          `Nočná úloha pre ${row.shift_date} nebola do 07:00 splnená. Úloha zostáva aktívna.`
+        ).run();
+      }
+    }
+  }
+
+  return rows.results || [];
 }
 
 function getCookie(request: Request, name: string) {
@@ -997,6 +1105,7 @@ app.use("/api/*", async (c, next) => {
   else if (path.startsWith("/api/handover")) roles = ["maintenance_manager", "operations_manager"];
   else if (path.startsWith("/api/management-tasks")) roles = ["maintenance_manager", "operations_manager"];
   else if (path.startsWith("/api/reminders")) roles = ["maintenance_manager", "operations_manager"];
+  else if (path.startsWith("/api/night-work")) roles = ["maintenance", "maintenance_manager", "operations_manager"];
   else if (path === "/api/purchases" && method === "GET") roles = ALL_STAFF_ROLES;
   else if (/^\/api\/purchases\/\d+\/(approve|reject|in-stock)$/.test(path)) roles = ["operations_manager"];
   else if (path.startsWith("/api/push/")) roles = ALL_STAFF_ROLES;
@@ -1131,7 +1240,20 @@ app.get("/api/issues", async (c) => {
         COALESCE((
           SELECT COUNT(*) FROM issue_events e
           WHERE e.issue_id = i.id AND e.event_type = 'rating_down'
-        ), 0) AS rating_down_count
+        ), 0) AS rating_down_count,
+        COALESCE((
+          SELECT GROUP_CONCAT(DISTINCT e.actor_name) FROM issue_events e
+          WHERE e.issue_id=i.id AND e.actor_role='maintenance'
+            AND e.event_type IN ('taken','taken_over')
+            AND e.actor_name IS NOT NULL AND TRIM(e.actor_name)<>''
+        ), '') AS taken_by_names,
+        COALESCE((
+          SELECT e.actor_name FROM issue_events e
+          WHERE e.issue_id=i.id AND e.actor_role='maintenance'
+            AND e.event_type IN ('resolved','night_resolved')
+            AND e.actor_name IS NOT NULL AND TRIM(e.actor_name)<>''
+          ORDER BY e.id DESC LIMIT 1
+        ), '') AS closed_by_name
       FROM issues i
       ORDER BY i.id DESC
     `).all<any>();
@@ -1563,7 +1685,7 @@ app.post("/api/operations/tasks", async (c) => {
     }
     const result = await c.env.DB.prepare(`
       INSERT INTO issues (reporter_name,reporter_role,location,description,photo_key,status,destination_role,issue_type,last_actor_name,created_at,updated_at)
-      VALUES (?, 'operations_manager', ?, ?, ?, 'manager', 'maintenance_manager', 'issue', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      VALUES (?, 'operations_manager', ?, ?, ?, 'manager', 'maintenance_manager', 'task', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     `).bind(operationsName, location, description, photoKey, operationsName).run();
     const issueId = result.meta.last_row_id;
     await c.env.DB.prepare(`
@@ -2452,16 +2574,56 @@ app.post("/api/management-tasks/:id/action", async (c) => {
   await ensureFeatureTables(c.env.DB);
   const session=await getSession(c);
   if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
-  const id=Number(c.req.param("id")); const form=await c.req.formData();
-  const action=String(form.get("action")||""); const message=String(form.get("message")||"").trim(); const status=String(form.get("status")||"").trim();
-  let photoKey:string|null=null; const photo=collectPhotoFiles(form,1)[0]; if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"management-tasks/comments");
-  if(action==="take") await c.env.DB.prepare(`UPDATE management_tasks SET owner_name=?,status='progress',updated_at=CURRENT_TIMESTAMP,closed_at=NULL WHERE id=?`).bind(session.name,id).run();
-  else if(action==="assign") { const owner=String(form.get("owner_name")||"").trim(); await c.env.DB.prepare(`UPDATE management_tasks SET owner_name=?,status=CASE WHEN ?='' THEN 'new' ELSE 'progress' END,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(owner||null,owner,id).run(); }
-  else if(action==="status") { const allowed=["new","progress","quote","decision","realization","closed"]; if(!allowed.includes(status)) return c.json({success:false,error:"Neplatný stav."},400); await c.env.DB.prepare(`UPDATE management_tasks SET status=?,updated_at=CURRENT_TIMESTAMP,closed_at=CASE WHEN ?='closed' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?`).bind(status,status,id).run(); }
-  else if(action==="reopen") await c.env.DB.prepare(`UPDATE management_tasks SET status='progress',closed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
-  else if(action!=="comment") return c.json({success:false,error:"Neplatná akcia."},400);
-  if(message || photoKey) await c.env.DB.prepare(`INSERT INTO management_task_comments(task_id,author_role,author_name,text,photo_key,created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,message||"Aktualizácia úlohy",photoKey).run();
-  scheduleNotification(c,["maintenance_manager","operations_manager"],"📝 Aktualizácia úlohy",message||"Úloha bola aktualizovaná.","/");
+  const id=Number(c.req.param("id"));
+  const form=await c.req.formData();
+  const action=String(form.get("action")||"");
+  const message=String(form.get("message")||"").trim();
+  const status=String(form.get("status")||"").trim();
+  const task=await c.env.DB.prepare(`SELECT * FROM management_tasks WHERE id=?`).bind(id).first<any>();
+  if(!task) return c.json({success:false,error:"Úloha neexistuje."},404);
+
+  let photoKey:string|null=null;
+  const photo=collectPhotoFiles(form,1)[0];
+  if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"management-tasks/comments");
+
+  let auditText="";
+  if(action==="take") {
+    if(session.role!=="maintenance_manager") return c.json({success:false,error:"Úlohu k sebe preberá Vedúci Údržby a technológie."},403);
+    const previous=String(task.owner_name||"").trim();
+    await c.env.DB.prepare(`UPDATE management_tasks SET owner_name=?,status='progress',updated_at=CURRENT_TIMESTAMP,closed_at=NULL WHERE id=?`).bind(session.name,id).run();
+    auditText=previous && previous.toLowerCase()!==session.name.toLowerCase()
+      ? `Úlohu prevzal ${session.name} od ${previous}.`
+      : `Úlohu prevzal ${session.name}.`;
+  }
+  else if(action==="assign") {
+    if(session.role!=="operations_manager") return c.json({success:false,error:"Konkrétneho vedúceho môže priradiť Prevádzkový riaditeľ."},403);
+    const owner=String(form.get("owner_name")||"").trim();
+    const allowedOwners=["Ľuboš Trizna","Peter Hrabal","Jaroslav Pažítka"];
+    if(owner && !allowedOwners.includes(owner)) return c.json({success:false,error:"Vyberte platného vedúceho."},400);
+    await c.env.DB.prepare(`UPDATE management_tasks SET owner_name=?,status=CASE WHEN ?='' THEN 'new' ELSE 'progress' END,updated_at=CURRENT_TIMESTAMP,closed_at=NULL WHERE id=?`).bind(owner||null,owner,id).run();
+    auditText=owner ? `Prevádzkový riaditeľ priradil úlohu: ${owner}.` : "Priradenie úlohy bolo zrušené.";
+  }
+  else if(action==="status") {
+    const allowed=["new","progress","material","quote","decision","realization","closed"];
+    if(!allowed.includes(status)) return c.json({success:false,error:"Neplatný stav."},400);
+    await c.env.DB.prepare(`UPDATE management_tasks SET status=?,updated_at=CURRENT_TIMESTAMP,closed_at=CASE WHEN ?='closed' THEN CURRENT_TIMESTAMP ELSE NULL END WHERE id=?`).bind(status,status,id).run();
+    const labels:Record<string,string>={new:"Nové",progress:"V riešení",material:"Čaká na materiál",quote:"Čaká na ponuku",decision:"Čaká na rozhodnutie",realization:"Čaká na realizáciu",closed:"Hotové"};
+    auditText=`Stav úlohy zmenený na: ${labels[status]||status}.`;
+  }
+  else if(action==="reopen") {
+    if(task.status!=="closed") return c.json({success:false,error:"Znovu otvoriť je možné iba hotovú úlohu."},409);
+    await c.env.DB.prepare(`UPDATE management_tasks SET status='progress',closed_at=NULL,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+    auditText="Úloha bola znovu otvorená.";
+  }
+  else if(action==="comment") {
+    if(!message && !photoKey) return c.json({success:false,error:"Napíšte komentár alebo pridajte fotografiu."},400);
+    auditText=message||"Pridaná fotografia k úlohe.";
+  }
+  else return c.json({success:false,error:"Neplatná akcia."},400);
+
+  const storedText=message && action!=="comment" ? `${auditText} ${message}` : (auditText||message);
+  await c.env.DB.prepare(`INSERT INTO management_task_comments(task_id,author_role,author_name,text,photo_key,created_at) VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,storedText,photoKey).run();
+  scheduleNotification(c,["maintenance_manager","operations_manager"],"📝 Aktualizácia úlohy",storedText,"/");
   return c.json({success:true});
 });
 
@@ -2481,6 +2643,13 @@ app.post("/api/reminders", async (c) => {
   const body=await c.req.json(); const title=String(body.title||"").trim(); const dueDate=String(body.due_date||"").trim(); const dueTime=String(body.due_time||"").trim()||null; const sourceNote=Number(body.source_note_id||0)||null;
   if(!title || !/^\d{4}-\d{2}-\d{2}$/.test(dueDate)) return c.json({success:false,error:"Doplňte názov a dátum."},400);
   const r=await c.env.DB.prepare(`INSERT INTO reminders(title,due_date,due_time,source_note_id,created_by_role,created_by_name,created_at) VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)`).bind(title,dueDate,dueTime,sourceNote,session.role,session.name).run();
+  scheduleNotification(
+    c,
+    ["maintenance_manager","operations_manager"],
+    "🔔 Nová spoločná pripomienka",
+    `${session.name}: ${dueDate}${dueTime ? ` ${dueTime}` : ""} • ${title}`,
+    "/"
+  );
   return c.json({success:true,id:Number(r.meta.last_row_id)});
 });
 
@@ -2498,12 +2667,79 @@ app.post("/api/purchases", async (c) => {
   const item=String(form.get("item_name")||"").trim();
   if(!requesterName) return c.json({success:false,error:"Meno žiadateľa je povinné."},400);
   if(!item) return c.json({success:false,error:"Napíšte, čo treba kúpiť."},400);
-  const quantity=String(form.get("quantity")||"").trim(); const price=String(form.get("price")||"").trim(); const priceKind=String(form.get("price_kind")||"").trim(); const note=String(form.get("note")||"").trim(); const priority=String(form.get("priority")||"normal")==="urgent"?"urgent":"normal";
-  let photoKey:string|null=null; const photo=collectPhotoFiles(form,1)[0]; if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"purchases");
-  const r=await c.env.DB.prepare(`INSERT INTO purchase_requests(requester_name,requester_role,item_name,quantity,price,price_kind,note,priority,photo_key,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,'pending',CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`).bind(requesterName,requesterRole,item,quantity,price,priceKind,note,priority,photoKey).run();
-  const id=Number(r.meta.last_row_id); await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'created',?,?,?,CURRENT_TIMESTAMP)`).bind(id,requesterRole,requesterName,item).run();
-  scheduleNotification(c,["operations_manager"], priority==="urgent"?"🛒 Súrna požiadavka na nákup":"🛒 Nová požiadavka na nákup",`${requesterName}: ${item}`,"/");
-  return c.json({success:true,id});
+
+  const quantity=String(form.get("quantity")||"").trim();
+  const price=String(form.get("price")||"").trim();
+  const priceKind=String(form.get("price_kind")||"").trim();
+  const note=String(form.get("note")||"").trim();
+  const priority=String(form.get("priority")||"normal")==="urgent"?"urgent":"normal";
+  const sourceIssueId=session ? (Number(form.get("source_issue_id")||0)||null) : null;
+  const sourceTaskId=session && ["maintenance_manager","operations_manager"].includes(session.role) ? (Number(form.get("source_task_id")||0)||null) : null;
+  let photoKey:string|null=null;
+  const photo=collectPhotoFiles(form,1)[0];
+  if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"purchases");
+
+  const autoApproved=session?.role==="operations_manager";
+  const status=autoApproved?"approved":"pending";
+  const r=await c.env.DB.prepare(`
+    INSERT INTO purchase_requests(
+      requester_name,requester_role,item_name,quantity,price,price_kind,note,priority,photo_key,status,
+      approved_by_name,approved_at,source_issue_id,source_task_id,created_at,updated_at
+    )
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE NULL END,?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+  `).bind(
+    requesterName,requesterRole,item,quantity,price,priceKind,note,priority,photoKey,status,
+    autoApproved?requesterName:null,autoApproved?1:0,sourceIssueId,sourceTaskId
+  ).run();
+
+  const id=Number(r.meta.last_row_id);
+  await c.env.DB.prepare(`
+    INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at)
+    VALUES (?,'created',?,?,?,CURRENT_TIMESTAMP)
+  `).bind(id,requesterRole,requesterName,item).run();
+
+  if(autoApproved){
+    await c.env.DB.prepare(`
+      INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at)
+      VALUES (?,'approved',?,?,?,CURRENT_TIMESTAMP)
+    `).bind(id,requesterRole,requesterName,"Automaticky schválené – požiadavku vytvoril Prevádzkový riaditeľ.").run();
+  } else {
+    scheduleNotification(
+      c,
+      ["operations_manager"],
+      priority==="urgent"?"🛒 Súrna požiadavka na nákup":"🛒 Nová požiadavka na nákup",
+      `${requesterName}: ${item}`,
+      "/"
+    );
+  }
+
+  if(sourceIssueId){
+    const issue=await c.env.DB.prepare(`SELECT id FROM issues WHERE id=?`).bind(sourceIssueId).first<any>();
+    if(issue){
+      await insertIssueEvent(
+        c.env.DB,
+        sourceIssueId,
+        "purchase_requested",
+        requesterRole,
+        requesterName,
+        `Vytvorená nákupná požiadavka #${id}: ${item}`,
+        [],
+        "action"
+      );
+    }
+  }
+
+  if(sourceTaskId){
+    const task=await c.env.DB.prepare(`SELECT id FROM management_tasks WHERE id=?`).bind(sourceTaskId).first<any>();
+    if(task){
+      await c.env.DB.prepare(`
+        INSERT INTO management_task_comments(task_id,author_role,author_name,text,created_at)
+        VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+      `).bind(sourceTaskId,requesterRole,requesterName,`Vytvorená nákupná požiadavka #${id}: ${item}`).run();
+    }
+  }
+
+  return c.json({success:true,id,auto_approved:autoApproved,status});
 });
 
 app.get("/api/purchases", async (c) => {
@@ -2520,19 +2756,19 @@ app.post("/api/purchases/:id/approve", async (c) => {
   const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='approved',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run();
   await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'approved',?,?,?,CURRENT_TIMESTAMP)`).bind(id,session.role,session.name,'Schválené').run();
-  await notifyNamedUser(c,String(row.requester_role ?? ""),String(row.requester_name ?? ""),"✅ Nákup schválený",`${row.item_name} bol schválený na nákup.`); return c.json({success:true});
+  await notifyNamedUser(c,row.requester_role,row.requester_name,"✅ Nákup schválený",`${row.item_name} bol schválený na nákup.`); return c.json({success:true});
 });
 
 app.post("/api/purchases/:id/reject", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const body=await c.req.json().catch(()=>({})); const reason=String(body.reason||"").trim();
   const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
   await c.env.DB.prepare(`UPDATE purchase_requests SET status='rejected',rejection_reason=?,approved_by_name=?,approved_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(reason,session.name,id).run();
-  await notifyNamedUser(c,String(row.requester_role ?? ""),String(row.requester_name ?? ""),"❌ Nákup zamietnutý",`${row.item_name}${reason?`: ${reason}`:"."}`); return c.json({success:true});
+  await notifyNamedUser(c,row.requester_role,row.requester_name,"❌ Nákup zamietnutý",`${row.item_name}${reason?`: ${reason}`:"."}`); return c.json({success:true});
 });
 
 app.post("/api/purchases/:id/in-stock", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || session.role!=="operations_manager") return c.json({success:false,error:"Bez oprávnenia."},403); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=?`).bind(id).first(); if(!row) return c.json({success:false,error:"Požiadavka neexistuje."},404);
-  await c.env.DB.prepare(`UPDATE purchase_requests SET status='in_stock',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run(); await notifyNamedUser(c,String(row.requester_role ?? ""),String(row.requester_name ?? ""),"📦 Položka je na sklade",`${row.item_name} je dostupný na sklade.`); return c.json({success:true});
+  await c.env.DB.prepare(`UPDATE purchase_requests SET status='in_stock',approved_by_name=?,approved_at=CURRENT_TIMESTAMP,purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(session.name,id).run(); await notifyNamedUser(c,row.requester_role,row.requester_name,"📦 Položka je na sklade",`${row.item_name} je dostupný na sklade.`); return c.json({success:true});
 });
 
 app.post("/api/shopping/login", async (c) => {
@@ -2544,22 +2780,240 @@ app.post("/api/shopping/logout", async (c) => { const raw=getCookie(c.req.raw,SH
 
 app.get("/api/shopping/list", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); await ensureFeatureTables(c.env.DB); const rows=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE status='approved' ORDER BY CASE WHEN priority='urgent' THEN 0 ELSE 1 END, approved_at,id`).all<any>(); const history=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE status IN ('purchased','in_stock') ORDER BY COALESCE(purchased_at,updated_at) DESC LIMIT 100`).all<any>(); return c.json({success:true,purchases:rows.results||[],history:history.results||[]}); });
 
-app.post("/api/shopping/:id/purchased", async (c) => { if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401); const id=Number(c.req.param("id")); const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=? AND status='approved'`).bind(id).first(); if(!row) return c.json({success:false,error:"Položka nie je v nákupnom zozname."},404); await c.env.DB.prepare(`UPDATE purchase_requests SET status='purchased',purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run(); await notifyNamedUser(c,String(row.requester_role ?? ""),String(row.requester_name ?? ""),"🛍️ Nákup vybavený",`${row.item_name} bol nakúpený.`); return c.json({success:true}); });
+app.post("/api/shopping/:id/purchased", async (c) => {
+  if(!(await hasShoppingSession(c))) return c.json({success:false,error:"Zadajte PIN."},401);
+  const id=Number(c.req.param("id"));
+  const row=await c.env.DB.prepare(`SELECT * FROM purchase_requests WHERE id=? AND status='approved'`).bind(id).first<any>();
+  if(!row) return c.json({success:false,error:"Položka nie je v nákupnom zozname."},404);
+  await c.env.DB.prepare(`UPDATE purchase_requests SET status='purchased',purchased_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP WHERE id=?`).bind(id).run();
+  await c.env.DB.prepare(`INSERT INTO purchase_events(purchase_id,event_type,actor_role,actor_name,message,created_at) VALUES (?,'purchased','shopping','Nákupný zoznam','Nakúpené',CURRENT_TIMESTAMP)`).bind(id).run();
+  await notifyNamedUser(c,row.requester_role,row.requester_name,"🛍️ Nákup vybavený",`${row.item_name} bol nakúpený.`);
+
+  if(row.source_issue_id){
+    await insertIssueEvent(c.env.DB,Number(row.source_issue_id),"material_purchased","shopping","Nákupný zoznam",`Materiál z požiadavky #${id} bol nakúpený: ${row.item_name}`,[],"action");
+    const issue=await c.env.DB.prepare(`SELECT destination_role FROM issues WHERE id=?`).bind(row.source_issue_id).first<any>();
+    const role=isStaffRole(String(issue?.destination_role||"")) ? String(issue.destination_role) as StaffRole : "maintenance";
+    scheduleNotification(c,[role],"📦 Materiál je nakúpený",`${row.item_name} • závada #${String(row.source_issue_id).padStart(4,"0")}`,"/");
+  }
+  if(row.source_task_id){
+    await c.env.DB.prepare(`INSERT INTO management_task_comments(task_id,author_role,author_name,text,created_at) VALUES (?,'shopping','Nákupný zoznam',?,CURRENT_TIMESTAMP)`).bind(row.source_task_id,`Materiál z požiadavky #${id} bol nakúpený: ${row.item_name}`).run();
+    scheduleNotification(c,["maintenance_manager","operations_manager"],"📦 Materiál k úlohe je nakúpený",row.item_name,"/");
+  }
+  return c.json({success:true});
+});
 
 app.get("/api/worker-stats", async (c) => {
   await ensureFeatureTables(c.env.DB); const session=await getSession(c); if(!session || !["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Bez oprávnenia."},403);
   const rows=await c.env.DB.prepare(`
     SELECT e.actor_name,
       SUM(CASE WHEN e.event_type IN ('taken','taken_over') THEN 1 ELSE 0 END) AS taken_count,
-      SUM(CASE WHEN e.event_type='resolved' THEN 1 ELSE 0 END) AS resolved_count,
-      ROUND(AVG(CASE WHEN e.event_type='resolved' THEN (julianday(e.created_at)-julianday(i.created_at))*24.0 END),1) AS avg_hours
+      SUM(CASE WHEN e.event_type IN ('resolved','night_resolved') THEN 1 ELSE 0 END) AS resolved_count,
+      ROUND(AVG(CASE WHEN e.event_type IN ('resolved','night_resolved') THEN (julianday(e.created_at)-julianday(i.created_at))*24.0 END),1) AS avg_hours
     FROM issue_events e JOIN issues i ON i.id=e.issue_id
-    WHERE e.actor_name IS NOT NULL AND TRIM(e.actor_name)<>''
+    WHERE e.actor_role='maintenance' AND e.actor_name IS NOT NULL AND TRIM(e.actor_name)<>''
     GROUP BY e.actor_name ORDER BY resolved_count DESC,taken_count DESC,e.actor_name
   `).all<any>();
   return c.json({success:true,workers:rows.results||[]});
 });
 
+
+
+/* =========================================================
+   PRÁCE NA NOČNÚ
+   ========================================================= */
+
+app.get("/api/night-work", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    await expireNightWork(c.env.DB);
+    const session=await getSession(c);
+    if(!session || !["maintenance","maintenance_manager","operations_manager"].includes(session.role)) {
+      return c.json({success:false,error:"Bez oprávnenia."},403);
+    }
+
+    const scope=String(c.req.query("scope")||"active");
+    const shiftDate=String(c.req.query("date")||"").trim();
+    let rows:any;
+
+    if(scope==="active"){
+      const dates=activeNightShiftDates();
+      const placeholders=dates.map(()=>"?").join(",");
+      rows=await c.env.DB.prepare(`
+        SELECT * FROM night_work
+        WHERE status='scheduled' AND shift_date IN (${placeholders})
+        ORDER BY shift_date,id
+      `).bind(...dates).all<any>();
+    } else if(scope==="history"){
+      if(!["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"História je určená vedeniu."},403);
+      rows=shiftDate
+        ? await c.env.DB.prepare(`SELECT * FROM night_work WHERE shift_date=? ORDER BY id`).bind(shiftDate).all<any>()
+        : await c.env.DB.prepare(`SELECT * FROM night_work WHERE status IN ('completed','expired') ORDER BY shift_date DESC,id DESC LIMIT 500`).all<any>();
+    } else {
+      if(!["maintenance_manager","operations_manager"].includes(session.role)) return c.json({success:false,error:"Prehľad je určený vedeniu."},403);
+      rows=await c.env.DB.prepare(`SELECT * FROM night_work WHERE status='scheduled' ORDER BY shift_date,id`).all<any>();
+    }
+
+    return c.json({success:true,items:rows.results||[],active_dates:activeNightShiftDates()});
+  } catch(error){
+    console.error(error);
+    return c.json({success:false,error:"Nočné práce sa nepodarilo načítať."},500);
+  }
+});
+
+app.post("/api/night-work", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const session=await getSession(c);
+    if(!session || session.role!=="maintenance_manager") return c.json({success:false,error:"Nočné práce môže zadávať Vedúci Údržby a technológie."},403);
+    const form=await c.req.formData();
+    const shiftDate=String(form.get("shift_date")||"").trim();
+    const kindRaw=String(form.get("kind")||"task").trim();
+    const kind=kindRaw==="note"?"note":"task";
+    const title=String(form.get("title")||"").trim();
+    const description=String(form.get("description")||"").trim();
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate) || !title) return c.json({success:false,error:"Vyberte deň a zadajte názov práce."},400);
+    if(shiftDate < slovakToday()) return c.json({success:false,error:"Nočnú prácu nie je možné naplánovať do minulosti."},400);
+    let photoKey:string|null=null;
+    const photo=collectPhotoFiles(form,1)[0];
+    if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"night-work");
+    const result=await c.env.DB.prepare(`
+      INSERT INTO night_work(shift_date,kind,title,description,photo_key,status,created_by_role,created_by_name,created_at,updated_at)
+      VALUES (?,?,?,?,?,'scheduled',?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    `).bind(shiftDate,kind,title,description||null,photoKey,session.role,session.name).run();
+    const id=Number(result.meta.last_row_id);
+    scheduleNotification(c,["maintenance"],kind==="note"?"🌙 Nový odkaz na nočnú":"🌙 Nová práca na nočnú",`${shiftDate} • ${title}`,"/");
+    return c.json({success:true,id});
+  } catch(error){
+    console.error(error);
+    return c.json({success:false,error:"Nočnú prácu sa nepodarilo uložiť."},500);
+  }
+});
+
+app.post("/api/night-work/from-issue", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const session=await getSession(c);
+    if(!session || session.role!=="maintenance_manager") return c.json({success:false,error:"Na nočnú môže závadu posunúť Vedúci Údržby a technológie."},403);
+    const body=await c.req.json();
+    const issueId=Number(body.issue_id||0);
+    const shiftDate=String(body.shift_date||"").trim();
+    if(!Number.isInteger(issueId)||issueId<=0||!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) return c.json({success:false,error:"Neplatná závada alebo dátum."},400);
+    if(shiftDate < slovakToday()) return c.json({success:false,error:"Nočnú prácu nie je možné naplánovať do minulosti."},400);
+    const issue=await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(issueId).first<any>();
+    if(!issue) return c.json({success:false,error:"Závada neexistuje."},404);
+    if(issue.status==="closed") return c.json({success:false,error:"Uzavretú závadu nie je možné posunúť na nočnú."},409);
+    const duplicate=await c.env.DB.prepare(`SELECT id FROM night_work WHERE source_issue_id=? AND status='scheduled'`).bind(issueId).first<any>();
+    if(duplicate) return c.json({success:false,error:"Táto závada už je zaradená medzi nočné práce."},409);
+    const title=`#${String(issueId).padStart(4,"0")} • ${issue.location}`;
+    const result=await c.env.DB.prepare(`
+      INSERT INTO night_work(shift_date,kind,source_issue_id,title,description,photo_key,status,created_by_role,created_by_name,created_at,updated_at)
+      VALUES (?,'linked_issue',?,?,?,?, 'scheduled',?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    `).bind(shiftDate,issueId,title,String(issue.description||""),issue.photo_key||null,session.role,session.name).run();
+    await insertIssueEvent(c.env.DB,issueId,"night_scheduled",session.role,session.name,`Závada bola zaradená na nočnú zmenu ${shiftDate}.`,[],"action");
+    scheduleNotification(c,["maintenance"],"🌙 Závada zaradená na nočnú",`${shiftDate} • ${title}`,"/");
+    return c.json({success:true,id:Number(result.meta.last_row_id)});
+  } catch(error){
+    console.error(error);
+    return c.json({success:false,error:"Závadu sa nepodarilo zaradiť na nočnú."},500);
+  }
+});
+
+app.post("/api/night-work/from-task", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    const session=await getSession(c);
+    if(!session || session.role!=="maintenance_manager") return c.json({success:false,error:"Na nočnú môže úlohu posunúť Vedúci Údržby a technológie."},403);
+    const body=await c.req.json();
+    const taskId=Number(body.task_id||0);
+    const shiftDate=String(body.shift_date||"").trim();
+    if(!Number.isInteger(taskId)||taskId<=0||!/^\d{4}-\d{2}-\d{2}$/.test(shiftDate)) return c.json({success:false,error:"Neplatná úloha alebo dátum."},400);
+    if(shiftDate < slovakToday()) return c.json({success:false,error:"Nočnú prácu nie je možné naplánovať do minulosti."},400);
+    const task=await c.env.DB.prepare(`SELECT * FROM management_tasks WHERE id=?`).bind(taskId).first<any>();
+    if(!task) return c.json({success:false,error:"Úloha neexistuje."},404);
+    if(task.status==="closed") return c.json({success:false,error:"Hotovú úlohu nie je možné posunúť na nočnú."},409);
+    const duplicate=await c.env.DB.prepare(`SELECT id FROM night_work WHERE source_task_id=? AND status='scheduled'`).bind(taskId).first<any>();
+    if(duplicate) return c.json({success:false,error:"Táto úloha už je zaradená medzi nočné práce."},409);
+    const result=await c.env.DB.prepare(`
+      INSERT INTO night_work(shift_date,kind,source_task_id,title,description,photo_key,status,created_by_role,created_by_name,created_at,updated_at)
+      VALUES (?,'linked_task',?,?,?,?, 'scheduled',?,?,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)
+    `).bind(shiftDate,taskId,String(task.title||`Úloha #${taskId}`),String(task.description||""),task.photo_key||null,session.role,session.name).run();
+    await c.env.DB.prepare(`
+      INSERT INTO management_task_comments(task_id,author_role,author_name,text,created_at)
+      VALUES (?,?,?,?,CURRENT_TIMESTAMP)
+    `).bind(taskId,session.role,session.name,`Úloha bola zaradená na nočnú zmenu ${shiftDate}.`).run();
+    scheduleNotification(c,["maintenance"],"🌙 Úloha zaradená na nočnú",`${shiftDate} • ${task.title}`,"/");
+    return c.json({success:true,id:Number(result.meta.last_row_id)});
+  } catch(error){
+    console.error(error);
+    return c.json({success:false,error:"Úlohu sa nepodarilo zaradiť na nočnú."},500);
+  }
+});
+
+app.post("/api/night-work/:id/complete", async (c) => {
+  try {
+    await ensureFeatureTables(c.env.DB);
+    await expireNightWork(c.env.DB);
+    const session=await getSession(c);
+    if(!session || session.role!=="maintenance") return c.json({success:false,error:"Nočnú prácu môže označiť ako hotovú pracovník Údržby a technológie."},403);
+    const id=Number(c.req.param("id"));
+    const row=await c.env.DB.prepare(`SELECT * FROM night_work WHERE id=?`).bind(id).first<any>();
+    if(!row) return c.json({success:false,error:"Nočná práca neexistuje."},404);
+    if(row.status!=="scheduled") return c.json({success:false,error:"Táto nočná položka už nie je aktívna."},409);
+    if(!activeNightShiftDates().includes(String(row.shift_date))) return c.json({success:false,error:"Táto nočná práca ešte nie je aktívna alebo už skončila."},409);
+
+    const form=await c.req.formData();
+    const comment=String(form.get("comment")||"").trim();
+    let photoKey:string|null=null;
+    const photo=collectPhotoFiles(form,1)[0];
+    if(photo) photoKey=await savePhoto(c.env.PHOTOS,photo,"night-work/completed");
+
+    await c.env.DB.prepare(`
+      UPDATE night_work
+      SET status='completed',completed_by_role=?,completed_by_name=?,completion_comment=?,completion_photo_key=?,
+          completed_at=CURRENT_TIMESTAMP,updated_at=CURRENT_TIMESTAMP
+      WHERE id=? AND status='scheduled'
+    `).bind(session.role,session.name,comment||null,photoKey,id).run();
+
+    if(row.source_issue_id){
+      const issue=await c.env.DB.prepare(`SELECT * FROM issues WHERE id=?`).bind(row.source_issue_id).first<any>();
+      if(issue && issue.status!=="closed"){
+        await c.env.DB.prepare(`
+          UPDATE issues
+          SET status='closed',destination_role='maintenance',assignee_role='maintenance',assignee_name=?,current_worker_name=?,
+              last_actor_name=?,updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP
+          WHERE id=?
+        `).bind(session.name,session.name,session.name,row.source_issue_id).run();
+        await insertIssueEvent(
+          c.env.DB,
+          Number(row.source_issue_id),
+          "night_resolved",
+          session.role,
+          session.name,
+          comment||"Vykonané počas nočnej zmeny.",
+          photoKey?[photoKey]:[],
+          "resolved"
+        );
+        await notifyIssueReporter(c,issue,"✅ Vaša závada bola vyriešená",`Závada #${String(row.source_issue_id).padStart(4,"0")} bola vyriešená počas nočnej zmeny.`);
+        await syncPumpFromClosedIssue(c.env.DB,Number(row.source_issue_id),session.role,session.name);
+      }
+    }
+
+    if(row.source_task_id){
+      await c.env.DB.prepare(`
+        UPDATE management_tasks SET status='closed',updated_at=CURRENT_TIMESTAMP,closed_at=CURRENT_TIMESTAMP WHERE id=?
+      `).bind(row.source_task_id).run();
+      await c.env.DB.prepare(`
+        INSERT INTO management_task_comments(task_id,author_role,author_name,text,photo_key,created_at)
+        VALUES (?,?,?,?,?,CURRENT_TIMESTAMP)
+      `).bind(row.source_task_id,session.role,session.name,comment||"Vykonané počas nočnej zmeny.",photoKey).run();
+    }
+
+    return c.json({success:true});
+  } catch(error){
+    console.error(error);
+    return c.json({success:false,error:"Nočnú prácu sa nepodarilo uzavrieť."},500);
+  }
+});
 
 /* =========================================================
    DIAGNOSTIKA / API 404
@@ -2580,7 +3034,7 @@ app.get("/api/features-health", async (c) => {
     );
     return c.json({
       success: true,
-      version: "1.7.0",
+      version: "1.8.0",
       alerts: true,
       messages: true,
       offline_drafts: true,
@@ -2591,6 +3045,7 @@ app.get("/api/features-health", async (c) => {
       management_tasks: true,
       reminders: true,
       purchases: true,
+      night_work: true,
       individual_manager_pin: true,
       pin_login: true,
       push: true,
@@ -2598,14 +3053,14 @@ app.get("/api/features-health", async (c) => {
     });
   } catch (error) {
     console.error(error);
-    return c.json({ success: false, version: "1.7.0" }, 500);
+    return c.json({ success: false, version: "1.8.0" }, 500);
   }
 });
 
 async function runReminderSchedule(env: Bindings) {
   await ensureFeatureTables(env.DB);
   const now = new Date();
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Bratislava", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", hour12:false }).formatToParts(now);
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone:"Europe/Bratislava", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", hourCycle:"h23" }).formatToParts(now);
   const get = (type:string) => parts.find((p:any)=>p.type===type)?.value || "";
   const today = `${get("year")}-${get("month")}-${get("day")}`;
   const hour = Number(get("hour"));
@@ -2629,11 +3084,19 @@ async function runReminderSchedule(env: Bindings) {
   }
 }
 
+async function runNightWorkSchedule(env: Bindings) {
+  await ensureFeatureTables(env.DB);
+  await expireNightWork(env.DB);
+}
+
 export default {
   fetch(request: Request, env: Bindings, ctx: ExecutionContext) {
     return app.fetch(request, env, ctx);
   },
   async scheduled(_controller: ScheduledController, env: Bindings, ctx: ExecutionContext) {
-    ctx.waitUntil(runReminderSchedule(env));
+    ctx.waitUntil(Promise.all([
+      runReminderSchedule(env),
+      runNightWorkSchedule(env),
+    ]));
   },
 };
